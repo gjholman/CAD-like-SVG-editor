@@ -131,6 +131,9 @@ function entityShape(
     });
   }
 
+  // Arcs are drawn in Step 9; until then they are simply not on the canvas.
+  if (entity.kind === 'arc') return undefined;
+
   const centre = positions[entity.center];
   if (centre === undefined) return undefined;
   return element('circle', {

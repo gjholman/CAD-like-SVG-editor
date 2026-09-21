@@ -21,7 +21,7 @@
  *   yellow unsolved        no solution found from this starting point
  */
 import { matrixFromRows, nullspace, rank, solveLeastSquares, type Matrix } from './linalg';
-import { assemble, constraintRows, pinRows, worstResidual, type ConstraintRow } from './residuals';
+import { arcRows, assemble, constraintRows, pinRows, worstResidual, type ConstraintRow } from './residuals';
 import { entityVariables, initialVector, mapVariables, type VariableMap } from './variables';
 import type { Id, SketchDocument } from '../model';
 
@@ -92,8 +92,15 @@ export function solve(doc: SketchDocument, options: SolveOptions = {}): SolveRes
   const active = Object.values(doc.constraints).filter((constraint) => constraint.suspended !== true);
   const pinned = Object.entries(options.pinned ?? {});
 
-  const constraintsOnly = (values: Float64Array): ConstraintRow[] =>
-    active.flatMap((constraint) => constraintRows(constraint, doc, variables, values));
+  // Arcs carry a structural constraint of their own: both endpoints the same
+  // distance from the centre. It is not in doc.constraints, so it is added
+  // here and counts toward the rank exactly like any other row.
+  const arcs = Object.values(doc.entities).filter((entity) => entity.kind === 'arc');
+
+  const constraintsOnly = (values: Float64Array): ConstraintRow[] => [
+    ...active.flatMap((constraint) => constraintRows(constraint, doc, variables, values)),
+    ...arcs.flatMap((arc) => arcRows(arc, variables, values)),
+  ];
   const withCursor = (values: Float64Array): ConstraintRow[] => [
     ...constraintsOnly(values),
     ...pinned.flatMap(([pointId, target]) => pinRows(pointId, target, variables, values)),
@@ -118,7 +125,13 @@ export function solve(doc: SketchDocument, options: SolveOptions = {}): SolveRes
   const jacobianRank = rank(final.jacobian);
   const dof = variables.count - jacobianRank;
   const independent = final.jacobian.rows === jacobianRank;
-  const conflicts = independent ? [] : findConflicts(final.owners, final.jacobian, jacobianRank, variables.count);
+  // Implicit arc rows are never reported: the user cannot delete one, so
+  // naming it as a conflict would be advice they cannot act on.
+  const conflicts = independent
+    ? []
+    : findConflicts(final.owners, final.jacobian, jacobianRank, variables.count).filter((id) =>
+        Object.hasOwn(doc.constraints, id),
+      );
 
   const status: SketchStatus = !independent
     ? 'over-defined'

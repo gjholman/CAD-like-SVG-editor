@@ -43,8 +43,34 @@ export interface CircleEntity extends EntityBase {
   readonly radius: number;
 }
 
-/** Arcs and Bézier chains join this union in Phase 2 and Phase 4. */
-export type Entity = LineEntity | CircleEntity;
+/**
+ * Circular arc, stored as three points plus a direction.
+ *
+ * The plan's DOF table describes an arc as centre, radius and two angles. Kept
+ * that way its endpoints would be derived values, so a line could never share
+ * a point with an arc — and shared points are how this model keeps topology
+ * explicit. Storing the endpoints instead makes them ordinary points that any
+ * relation can act on, and the solver adds one implicit constraint per arc
+ * (both endpoints equidistant from the centre) so the arithmetic still lands
+ * on 5 DOF: 6 variables minus 1.
+ *
+ * Radius is therefore derived, not stored: `|start - centre|`.
+ */
+export interface ArcEntity extends EntityBase {
+  readonly kind: 'arc';
+  readonly center: Id;
+  readonly start: Id;
+  readonly end: Id;
+  /**
+   * Which way round the arc sweeps, as it appears on screen. Coordinates are
+   * y-down, so clockwise on screen is SVG's sweep-flag 1. Not a variable: it
+   * picks one of two arcs through the same points, it does not move them.
+   */
+  readonly clockwise: boolean;
+}
+
+/** Bézier chains join this union in Phase 4. */
+export type Entity = LineEntity | CircleEntity | ArcEntity;
 
 export type EntityKind = Entity['kind'];
 
@@ -215,5 +241,22 @@ export function entityPointIds(entity: Entity): readonly Id[] {
       return [entity.p1, entity.p2];
     case 'circle':
       return [entity.center];
+    case 'arc':
+      return [entity.center, entity.start, entity.end];
   }
+}
+
+/**
+ * An arc's radius, which is derived rather than stored: the distance from its
+ * centre to its start point. The implicit constraint keeps the end point the
+ * same distance away, so either endpoint would do once the sketch is solved.
+ */
+export function arcRadius(
+  arc: ArcEntity,
+  positions: Readonly<Record<Id, { readonly x: number; readonly y: number }>>,
+): number {
+  const centre = positions[arc.center];
+  const start = positions[arc.start];
+  if (centre === undefined || start === undefined) return 0;
+  return Math.hypot(start.x - centre.x, start.y - centre.y);
 }

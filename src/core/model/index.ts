@@ -2,7 +2,9 @@ export { createIdGenerator, type Id, type IdGenerator } from './ids';
 export {
   DOCUMENT_VERSION,
   createEmptyDocument,
+  arcRadius,
   entityPointIds,
+  type ArcEntity,
   type CircleEntity,
   type CoincidentConstraint,
   type Constraint,
@@ -28,6 +30,7 @@ export {
 } from './types';
 export { isValid, validate, type IssueCode, type ValidationIssue } from './validate';
 export {
+  addArc,
   addConstraint,
   addEntity,
   addLine,

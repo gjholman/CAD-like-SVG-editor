@@ -49,6 +49,19 @@ export function addLine(
   return addEntity({ id, kind: 'line', p1, p2, layer, construction });
 }
 
+/** Centre, start and end are existing points; the arc simply joins them. */
+export function addArc(
+  id: Id,
+  center: Id,
+  start: Id,
+  end: Id,
+  layer: Id,
+  clockwise = true,
+  construction = false,
+): DocumentEdit {
+  return addEntity({ id, kind: 'arc', center, start, end, layer, clockwise, construction });
+}
+
 export function addConstraint(constraint: Constraint): DocumentEdit {
   return (doc) => ({ ...doc, constraints: { ...doc.constraints, [constraint.id]: constraint } });
 }

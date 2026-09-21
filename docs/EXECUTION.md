@@ -4,7 +4,7 @@ How we build the CAD-like SVG editor, in small steps. The *what* and *why* live 
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
 **Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Step 8 (arcs in
-the core) next.
+the core) done, Step 9 (arcs in the UI and export) next.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -455,7 +455,7 @@ lines and other arcs can share, and every existing relation works on them
 unchanged. The direction flag is not a variable; it says which of the two ways
 round the arc sweeps, and maps to SVG's sweep flag on export.
 
-### Step 8: Arcs in the core
+### Step 8: Arcs in the core — done
 
 - **Adds:** `Arc` entity (centre, start, end, direction); `validate` coverage;
   the implicit equal-radius constraint in the solver; arc variables in the DOF
@@ -464,6 +464,25 @@ round the arc sweeps, and maps to SVG's sweep flag on export.
   fully defines it; the implicit constraint is not reportable as a user
   conflict; a line sharing an endpoint with an arc solves as one sketch.
 - **Done when:** a hand-built arc solves, and its DOF count matches the plan.
+
+An arc alone reports 5 DOF, as the plan's table says. A line hanging off an
+arc's start point solves as one sketch with no coincident constraint between
+them, which is the point of storing the endpoints.
+
+Settled while building it:
+
+- **The implicit row is structural, so it is never reported as a conflict.**
+  Naming a constraint the user cannot delete would be advice they cannot act
+  on; over-constraining an arc names only the user's own `fix` relations.
+- **Radius comes from the start point**, not whichever endpoint is handy. On a
+  solved arc the two agree; mid-drag they do not, and the renderer draws then.
+- **Arcs contribute no variables of their own.** Their three points already
+  carry six, and the implicit row removes the seventh degree of freedom the
+  plan's table does not grant them.
+
+Adding the entity kind made TypeScript name every place that assumed two kinds
+— hit testing, rendering, export. Each skips arcs explicitly until Step 9,
+rather than being widened early and left untested.
 
 ### Step 9: Arcs in the UI and in export
 

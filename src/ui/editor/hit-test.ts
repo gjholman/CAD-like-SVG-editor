@@ -59,6 +59,8 @@ export function hitTestEntity(input: HitTestInput): Hit | undefined {
     if (layer === undefined || !layer.visible) continue;
 
     let distance: number | undefined;
+    // Arcs become pickable in Step 9, along with their rendering.
+    if (entity.kind === 'arc') continue;
     if (entity.kind === 'line') {
       const a = positions[entity.p1] ?? doc.points[entity.p1];
       const b = positions[entity.p2] ?? doc.points[entity.p2];

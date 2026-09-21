@@ -186,6 +186,9 @@ export function pathData(
       const entity = doc.entities[member.entity];
       if (entity === undefined) continue;
 
+      // Arcs export in Step 9, with their `A` commands.
+      if (entity.kind === 'arc') continue;
+
       if (entity.kind === 'circle') {
         // A circle cannot continue a chain, so it becomes its own closed run.
         const centre = positions[entity.center] ?? doc.points[entity.center];
@@ -238,6 +241,7 @@ function looseElement(
   radii: Readonly<Record<Id, number>>,
   style: StyleBag,
 ): string | undefined {
+  if (entity.kind === 'arc') return undefined; // Step 9
   if (entity.kind === 'circle') return circleElement(entity, positions, radii, style, entity.id);
 
   const a = positions[entity.p1];

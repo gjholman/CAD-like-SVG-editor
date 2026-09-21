@@ -130,6 +130,13 @@ function pointOnRows(
   if (entity === undefined) throw new Error(`solver: point-on "${id}" references unknown entity "${entityId}"`);
   const p = pointVariable(variables, pointId);
 
+  if (entity.kind === 'arc') {
+    // On the arc's circle: the same distance from the centre as its start
+    // point. The radius is derived, so it has no variable of its own and the
+    // start point's coordinates appear in the residual instead.
+    return [onArcRow(id, p, entity, variables, x)];
+  }
+
   if (entity.kind === 'circle') {
     const c = pointVariable(variables, entity.center);
     const rIndex = radiusVariable(variables, entity.id);
@@ -180,6 +187,77 @@ function pointOnRows(
       ],
     },
   ];
+}
+
+/**
+ * |point - centre| - |start - centre| = 0, for a point lying on an arc.
+ *
+ * Shared with the implicit arc constraint below, which is the same equation
+ * with the arc's end point as the point.
+ */
+function onArcRow(
+  id: Id,
+  p: number,
+  arc: { center: Id; start: Id },
+  variables: VariableMap,
+  x: Float64Array,
+): ConstraintRow {
+  const c = pointVariable(variables, arc.center);
+  const s = pointVariable(variables, arc.start);
+
+  const pdx = x[p]! - x[c]!;
+  const pdy = x[p + 1]! - x[c + 1]!;
+  const sdx = x[s]! - x[c]!;
+  const sdy = x[s + 1]! - x[c + 1]!;
+  const pd = Math.hypot(pdx, pdy);
+  const sd = Math.hypot(sdx, sdy);
+
+  // A degenerate arc has no direction to push in; the row carries the error
+  // but contributes no gradient, so it removes no degrees of freedom.
+  if (pd < DEGENERATE || sd < DEGENERATE) {
+    return { constraint: id, residual: pd - sd, partials: [] };
+  }
+
+  const pux = pdx / pd;
+  const puy = pdy / pd;
+  const sux = sdx / sd;
+  const suy = sdy / sd;
+
+  return {
+    constraint: id,
+    residual: pd - sd,
+    partials: [
+      [p, pux],
+      [p + 1, puy],
+      [s, -sux],
+      [s + 1, -suy],
+      // The centre moves in both terms, so its partials are the difference.
+      [c, sux - pux],
+      [c + 1, suy - puy],
+    ],
+  };
+}
+
+/**
+ * The constraint every arc carries whether or not the user asked for it: its
+ * two endpoints are the same distance from its centre.
+ *
+ * This is what makes three stored points behave like the plan's five degrees
+ * of freedom. It is structural, so it is not in `doc.constraints` and can
+ * never be deleted or reported as a user's conflict.
+ */
+export function arcRows(
+  arc: { id: Id; center: Id; start: Id; end: Id },
+  variables: VariableMap,
+  x: Float64Array,
+): ConstraintRow[] {
+  const end = pointVariable(variables, arc.end);
+  return [onArcRow(implicitArcId(arc.id), end, arc, variables, x)];
+}
+
+/** Implicit rows are tagged so they can be told from a user's constraints. */
+export function implicitArcId(entityId: Id): Id {
+  return `arc:${entityId}`;
 }
 
 /** Holding a point at a cursor position during a drag, without touching the document. */

@@ -22,8 +22,10 @@ export {
   type SolveResult,
 } from './solve';
 export {
+  arcRows,
   assemble,
   constraintRows,
+  implicitArcId,
   pinRows,
   worstResidual,
   type ConstraintRow,
