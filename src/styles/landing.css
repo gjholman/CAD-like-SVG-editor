@@ -1,0 +1,407 @@
+/*
+  Landing page styles. Placeholder until the UI design pass.
+
+  The page is laid out like a drawing sheet: a ruled border, a drawing area on
+  graph paper, and a title block. The colors come from the editor's own status
+  language: blue = under defined, ink = fully defined, red = over defined.
+*/
+
+:root {
+  --paper: #f5f7f8;
+  --grid: #e1e7eb;
+  --rule: #c9d2d9;
+  --ink: #20262c;
+  --muted: #5a6570;
+  --under: #2f6fde;
+  --over: #d6362b;
+
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", "Barlow", system-ui, sans-serif;
+
+  --margin: clamp(0.75rem, 3vw, 2rem);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #161b20;
+    --grid: #232b32;
+    --rule: #333e48;
+    --ink: #e8ecef;
+    --muted: #9aa6b0;
+    --under: #6fa0ff;
+    --over: #ff7466;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+figure {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--under);
+  outline-offset: 3px;
+}
+
+/* Sheet ------------------------------------------------------------------ */
+
+.sheet {
+  width: min(72rem, calc(100% - 2 * var(--margin)));
+  margin: var(--margin) auto;
+  padding: clamp(1.25rem, 4vw, 3rem);
+  border: 1.5px solid var(--ink);
+}
+
+.masthead-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.125rem;
+  letter-spacing: 0.01em;
+}
+
+/* Hero ------------------------------------------------------------------- */
+
+.hero {
+  display: grid;
+  gap: clamp(2rem, 5vw, 3.5rem);
+  align-items: center;
+  margin-top: clamp(2rem, 6vw, 4rem);
+}
+
+@media (min-width: 60rem) {
+  .hero {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  }
+}
+
+.hero-copy {
+  max-width: 34rem;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2.5rem, 6.5vw, 4.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 32rem;
+  margin-top: 1.25rem;
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+
+.status {
+  margin-top: 1.5rem;
+  color: var(--muted);
+}
+
+.drawing {
+  border: 1px solid var(--rule);
+}
+
+.drawing-area {
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.drawing-area svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.drawing figcaption {
+  padding: 0.625rem 0.875rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+/* Blocks ----------------------------------------------------------------- */
+
+.block {
+  margin-top: clamp(3rem, 8vw, 5.5rem);
+}
+
+.block-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.15;
+}
+
+.block-note {
+  max-width: 40rem;
+  margin-top: 0.5rem;
+  color: var(--muted);
+}
+
+/* The three definition states */
+
+.states {
+  display: grid;
+  gap: 2.5rem;
+  margin-top: 1.75rem;
+}
+
+@media (min-width: 48rem) {
+  .states {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .state {
+    padding: 0 1.5rem;
+    border-left: 1px solid var(--rule);
+  }
+
+  .state:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .state:last-child {
+    padding-right: 0;
+  }
+}
+
+.state svg {
+  display: block;
+  width: 100%;
+  max-width: 16rem;
+  height: auto;
+}
+
+.state-title {
+  margin-top: 0.75rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.state p {
+  max-width: 24rem;
+  margin-top: 0.375rem;
+}
+
+/* Planned features, laid out like a parts list */
+
+.parts {
+  margin-top: 1.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.parts-row {
+  display: grid;
+  gap: 0.25rem 2rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--rule);
+}
+
+@media (min-width: 40rem) {
+  .parts-row {
+    grid-template-columns: 11rem minmax(0, 1fr);
+  }
+}
+
+.parts-row dt {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1875rem;
+}
+
+.parts-row dd {
+  max-width: 40rem;
+}
+
+/* Title block ------------------------------------------------------------ */
+
+.titleblock-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: clamp(3rem, 8vw, 5rem);
+}
+
+.titleblock {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  width: min(100%, 30rem);
+  border: 1.5px solid var(--ink);
+  background: var(--ink);
+}
+
+.titleblock-cell {
+  padding: 0.5rem 0.75rem 0.625rem;
+  background: var(--paper);
+}
+
+.titleblock-cell--wide {
+  grid-column: 1 / -1;
+}
+
+.titleblock dt {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.titleblock dd {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.125rem;
+  line-height: 1.3;
+}
+
+/* Drawing vocabulary (shared by the hero and the three state drawings) ---- */
+
+.is-under {
+  color: var(--under);
+}
+
+.is-full {
+  color: var(--ink);
+}
+
+.is-over {
+  color: var(--over);
+}
+
+.line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dot {
+  fill: currentColor;
+}
+
+.ghost {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+
+.ghost-dot {
+  fill: var(--paper);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+
+.dim {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.dim-arrow {
+  fill: var(--muted);
+}
+
+.dim-text {
+  fill: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 15px;
+}
+
+/* In an over-defined sketch the dimensions carry the conflict, so they go red too. */
+.is-over .dim {
+  stroke: currentColor;
+}
+
+.is-over .dim-arrow,
+.is-over .dim-text {
+  fill: currentColor;
+}
+
+.glyph rect {
+  fill: var(--paper);
+  stroke: var(--ink);
+  stroke-width: 1.25;
+}
+
+.glyph path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* The one moment of motion: the hero sketch gets pinned down ---------------
+   Dimensions appear, then the relation markers, then the rectangle settles
+   from blue (loose) to ink (fully defined). The loose line stays blue. */
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes settle {
+  from {
+    color: var(--under);
+  }
+  to {
+    color: var(--ink);
+  }
+}
+
+.solve .dims {
+  animation: appear 600ms ease 500ms both;
+}
+
+.solve .glyph {
+  animation: appear 600ms ease 1000ms both;
+}
+
+.solve .settle {
+  animation: settle 700ms ease 1600ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solve .dims,
+  .solve .glyph,
+  .solve .settle {
+    animation: none;
+  }
+}

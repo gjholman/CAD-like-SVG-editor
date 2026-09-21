@@ -1,0 +1,174 @@
+# Execution Plan
+
+How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
+[`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
+
+**Status:** Step 0 (scaffold) delivered. Next: UI design conversation, then Step 1.
+
+---
+
+## 1. Working agreements
+
+- **Baby steps.** Every step ends green (tests pass, typecheck passes) and is committed before the next begins. Commit messages look like `step-1: document model types`.
+- **Core before UI.** The model, history, and solver are built and tested with no interface at all. The UI comes after they work.
+- **Tests alongside the code.** For `src/core/`, write the test with (or before) the code. Numeric results use `toBeCloseTo`, never exact equality.
+- **One entry point for change.** Every edit to the document goes through history `dispatch`. UI code never mutates the model directly (this is what makes undo cheap).
+- **Few dependencies.** Right now: Vite, Vitest, TypeScript. Later, only when a step needs it: `jsdom` (DOM tests for SVG import/export), maybe Playwright (end-to-end).
+- **Keep the plan alive.** When a step settles a decision, update `svg-cad-plan.md` (decisions log + changelog).
+
+### Assumptions to confirm
+
+- **TypeScript.** Vite supports it with zero config, and the data model (points, entities, constraints, paths, layers) is a large typed schema that benefits from it. If you'd rather use plain JavaScript, the scaffold converts easily.
+- **Coordinates are y-down**, matching SVG (no flipping on import/export).
+- **Vitest** for tests, since it shares Vite's config and transforms.
+
+---
+
+## 2. File structure
+
+```
+CAD-like-SVG-editor/
+├── index.html              landing page (Vite entry point)
+├── package.json
+├── tsconfig.json
+├── vite.config.ts          Vite + Vitest config
+├── README.md
+├── docs/
+│   ├── svg-cad-plan.md     the plan and decisions
+│   └── EXECUTION.md        this file
+├── src/
+│   ├── main.ts             entry: loads landing styles now, mounts the editor later
+│   ├── styles/
+│   │   └── landing.css
+│   ├── core/               pure logic, NO DOM
+│   │   ├── model/          (Step 1) types + validate()
+│   │   ├── solver/         (Steps 3a/3b) linear algebra, constraints, solve()
+│   │   └── history/        (Step 2) dispatch, snapshots, undo/redo
+│   ├── io/                 (Step 7) native JSON, SVG import/export
+│   └── ui/                 (Steps 4-6) rendering, tools, panels, shortcuts
+└── tests/
+    └── fixtures/           sample SVGs and sketch JSON for tests
+```
+
+### Dependency rule
+
+```
+ui  ->  io  ->  core
+```
+
+`core` imports nothing from `io` or `ui`. `io` may use DOM APIs (`DOMParser`) for SVG import. `ui` uses the DOM freely.
+
+This maps onto the two domains in the plan: `core/model` holds the **constraint domain** (points, entities, constraints) and the **output domain** (paths, styles, layers), linked only by IDs; the solver only ever sees the first.
+
+---
+
+## 3. Test setup
+
+**Tool:** Vitest, configured in `vite.config.ts`.
+
+- **Default environment is Node**, not a browser. A stray `document` or `window` in `src/core` fails immediately. (`smoke.test.ts` checks this on purpose.)
+- **Tests that need a DOM** opt in per file with `// @vitest-environment jsdom` on the first line (install `jsdom` when the first such test appears).
+- **Location:** unit tests sit next to the code (`solver.test.ts` beside `solver.ts`). Cross-module tests and fixtures live in `tests/`.
+- **Scripts:** `npm test` (watch), `npm run test:run` (once), `npm run typecheck`.
+
+### What each layer tests
+
+| Layer | What we test |
+|---|---|
+| `core/model` | `validate()` catches dangling references, path members on different layers, duplicate IDs |
+| `core/history` | Apply random transactions, undo them all, and the document equals the original. Redo, redo cleared by new edit, a drag gesture is one step |
+| `core/solver` | The rectangle from the plan (16 DOF, down to 0). Redundant vs conflicting constraints. Dimension edits move geometry. Drag simulation. A growing corpus of known sketches with known DOF |
+| `io` | JSON save then load equals the original. SVG export then import round-trips. Import fixtures. Scripts and event handlers in imported SVG are ignored |
+| `ui` | Light: element counts after rendering. Later, a few Playwright flows (draw a line, add a dimension, undo) |
+
+---
+
+## 4. Setup (Step 0)
+
+From the repo root:
+
+```bash
+unzip -n ~/Downloads/CAD-like-SVG-editor-starter.zip -d .   # -n keeps any files you already have
+mkdir -p docs && git mv svg-cad-plan.md docs/                # skip if the plan is already in docs/
+npm install -D vite vitest typescript
+npm run dev          # landing page at the URL Vite prints
+npm run test:run     # should pass 2 tests
+npm run typecheck
+git add -A && git commit -m "step-0: scaffold, tests, landing page"
+```
+
+Dependency versions are not pinned in the starter; `npm install -D` picks current ones and records them in `package.json` and the lockfile.
+
+**Done when:** the landing page loads, both tests pass, typecheck is clean, and it's committed.
+
+### Landing page
+
+A placeholder until the UI design pass. It's laid out like a drawing sheet (ruled border, graph-paper drawing area, title block) and uses the editor's own status colors: blue for under defined, ink for fully defined, red for over defined. The hero sketch has one animation (it gets pinned down on load) that respects `prefers-reduced-motion`. Fonts (Barlow, Barlow Semi Condensed) load from Google Fonts with system fallbacks. Everything on it is described as planned, since nothing else exists yet.
+
+---
+
+## 5. Steps
+
+Phase 1 from the plan, broken into small pieces. Each lists the files it adds and what "done" means.
+
+### Design checkpoint (next conversation)
+
+UI design for the editor itself: layout, tool palette, constraint and dimension interactions, status display. Feeds Steps 4 to 6. Steps 1 to 3 don't depend on it, so they can start in parallel.
+
+### Step 1: Document model
+
+- **Adds:** `core/model/` with types for `Point`, entities (`Line`, `Circle`, later `Arc`, `BezierChain`), `Constraint` (v1 kinds), `Path` record, `Layer`, `Document`; an injectable ID generator (so tests get predictable IDs); `validate(doc)`.
+- **Tests:** `validate` accepts good documents and reports each kind of broken reference.
+- **Done when:** a hand-built rectangle document (four lines, shared points, a closed path record) validates.
+
+### Step 2: History (undo/redo)
+
+- **Adds:** `core/history/` with `createHistory(doc)`, `dispatch(transaction)`, `undo`, `redo`, and gesture grouping (a drag is one step).
+- **Design:** immutable documents with structural sharing; history is a stack of document references (decided in the plan).
+- **Tests:** the undo-everything property test, redo behavior, redo cleared by new edits, gesture coalescing.
+- **Done when:** the property test passes over a few hundred random transaction sequences.
+
+### Step 3a: Small linear algebra
+
+- **Adds:** `core/solver/linalg.ts`: dense matrices, solve a linear system, rank and nullspace (QR with pivoting, or SVD).
+- **Tests:** known matrices with known rank and nullspace; a well-conditioned solve.
+- **Done when:** rank and nullspace are trustworthy on hand-checked cases.
+
+### Step 3b: Solver v0
+
+- **Adds:** `core/solver/` with variables from points; constraints: fix, coincident, horizontal, vertical, point-to-point distance; damped Gauss-Newton / Levenberg-Marquardt; DOF from Jacobian rank; per-entity status from the nullspace.
+- **API:** `solve(doc) -> { positions, dof, status, conflicts }`, pure and DOM-free.
+- **Tests:** the plan's rectangle worked example, redundant vs conflicting detection, editing a dimension moves geometry, simulated drag.
+- **Done when:** the rectangle example reports 0 DOF after the last constraint is added, and a contradiction is reported as over defined.
+
+### Step 4: Read-only renderer
+
+- **Adds:** `ui/render` that draws a document into the SVG DOM: layers as `<g>`, entities as elements, status colors from the solver result; pan and zoom.
+- **Done when:** the hand-built rectangle from Step 1 renders, black once fully defined and blue while loose.
+
+### Step 5: Editing v0
+
+- **Adds:** select tool, line tool, drag a point (solver runs during the drag), all through `dispatch`; Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z wired to history.
+- **Done when:** you can draw a line, drag it, and undo/redo it.
+
+### Step 6: Constraints and dimensions UI v0
+
+- **Adds:** add horizontal, vertical, coincident, fix from a selection; a dimension tool; a DOF counter; status coloring live.
+- **Done when:** you can draw the plan's rectangle by hand and watch it go from blue to black.
+
+### Step 7: Save/load and export
+
+- **Adds:** `io/` native JSON save and load (with a version field); SVG export that rebuilds `<path d>` from path records.
+- **Tests:** JSON round-trip equality; exported SVG parses and has the expected geometry.
+- **Done when:** the Step 6 rectangle survives save, reload, and export to a valid SVG.
+
+**After Step 7:** Phase 1 is complete. Continue with Phase 2 in the plan (arcs, more relations, inference while drawing).
+
+---
+
+## 6. Still open (not blocking Steps 1 to 3)
+
+- Cross-layer suspend: the UI affordance (modifier key, button, or context menu).
+- Import fidelity leftovers: rounded rects, CSS class resolution, merge tolerance, whether inference defaults on, embedding native JSON in exports.
+- Native file versioning and migrations.
+- Export styling (deferred by decision).
