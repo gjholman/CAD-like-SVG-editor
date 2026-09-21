@@ -3,7 +3,9 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 0 (scaffold) delivered. Next: UI design conversation, then Step 1.
+**Status:** Step 1 (document model) delivered. Next: Step 2 (history).
+A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
+Steps 4 to 6 work from it.
 
 ---
 
@@ -115,11 +117,29 @@ Phase 1 from the plan, broken into small pieces. Each lists the files it adds an
 
 UI design for the editor itself: layout, tool palette, constraint and dimension interactions, status display. Feeds Steps 4 to 6. Steps 1 to 3 don't depend on it, so they can start in parallel.
 
-### Step 1: Document model
+### Step 1: Document model — done
 
 - **Adds:** `core/model/` with types for `Point`, entities (`Line`, `Circle`, later `Arc`, `BezierChain`), `Constraint` (v1 kinds), `Path` record, `Layer`, `Document`; an injectable ID generator (so tests get predictable IDs); `validate(doc)`.
 - **Tests:** `validate` accepts good documents and reports each kind of broken reference.
 - **Done when:** a hand-built rectangle document (four lines, shared points, a closed path record) validates.
+
+Delivered as `src/core/model/{ids,types,validate}.ts`, with the rectangle in
+`tests/fixtures/rectangle.ts` (it seeds the solver corpus in Step 3b too).
+`validate` reports every problem in one pass, each tagged with an `IssueCode`:
+dangling references, ids reused across collections, a record filed under the
+wrong key, non-finite numbers, path members on the wrong layer or claimed by
+two paths, construction geometry inside a path, empty subpaths, and a
+`layerOrder` that doesn't match the layer set.
+
+Two things settled while building it:
+
+- **IDs are unique document-wide**, not just within a collection, since
+  constraints and path members reference points and entities by bare id.
+  `createIdGenerator` runs one counter across all prefixes to guarantee it.
+- **Horizontal and vertical store a point pair** in v1, not an entity. The plan
+  allows either; picking points keeps every v1 constraint referencing points
+  alone, which keeps the solver's variable mapping simple. The UI resolves a
+  picked line to its two endpoints.
 
 ### Step 2: History (undo/redo)
 

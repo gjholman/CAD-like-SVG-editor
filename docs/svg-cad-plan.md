@@ -340,6 +340,8 @@ Mitigating B's sync risk:
 - **Import, auto-constraints:** yes. Structural ones (shared endpoints, rect relations) apply automatically; optional inference (horizontal/vertical/tangent) is reviewable.
 - **Import, non-geometry** (text, gradients, filters, etc.): skipped; not a concern.
 - **Import, security:** parse and rebuild; never inject imported markup into the page.
+- **IDs:** unique across every collection in a document, not merely within one, because constraints and path members reference points and entities by bare id.
+- **Horizontal/vertical constraints:** stored as a point pair in v1 (not an entity reference), so every v1 constraint references points only. The UI resolves a picked line to its endpoints.
 
 ---
 
@@ -350,3 +352,4 @@ Mitigating B's sync risk:
 - 2026-09-20: Decided cross-layer constraints (toggleable), Bézier-chain splines, JSON native format; deferred export styling; added undo/redo and import fidelity sections.
 - 2026-09-20: Decided cross-layer suspend behavior and import defaults (transforms, Bézier circles, units, auto-constraints, non-geometry, security); added compound-path options and tradeoffs.
 - 2026-09-20: Decided persistent cross-layer suspend, path records (option B), and snapshot-based undo/redo.
+- 2026-09-21: Step 1 (document model and `validate`) built; recorded the ID-uniqueness and horizontal/vertical-as-point-pair decisions.
