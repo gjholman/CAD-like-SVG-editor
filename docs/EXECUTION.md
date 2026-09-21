@@ -3,7 +3,8 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 5 (editing v0) delivered. Next: Step 6 (constraints and dimensions UI).
+**Status:** Step 6 (constraints and dimensions UI) delivered. Next: Step 7
+(save/load and SVG export), which completes Phase 1.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -341,10 +342,44 @@ chain, dragging a corner across eight moves, then undoing back to empty. It
 took **five** undo steps (first point, three lines, one drag), which is the
 gesture coalescing working end to end.
 
-### Step 6: Constraints and dimensions UI v0
+### Step 6: Constraints and dimensions UI v0 — done
 
 - **Adds:** add horizontal, vertical, coincident, fix from a selection; a dimension tool; a DOF counter; status coloring live.
 - **Done when:** you can draw the plan's rectangle by hand and watch it go from blue to black.
+
+Delivered as `src/ui/editor/commands.ts` (selection to constraint),
+`src/ui/render/dimensions.ts` (annotations on the canvas), multi-selection in
+the editor, and a relations panel in the sandbox with editable dimension
+values. Relations are commands on the current selection rather than modal
+tools, with the mockup's shortcuts: ⇧H, ⇧V, ⇧C, ⇧F, and D for a dimension.
+
+The "done when" is a test that builds the plan's rectangle entirely through the
+editor and watches 8 → 4 → 2 → 0 DOF, ending with four black edges. The same
+sequence was then carried out by hand in a real browser.
+
+Settled while building it:
+
+- **Every edit commits its solve.** Applying a relation used to re-solve for
+  *display* only, so adding a horizontal did not actually level the points in
+  the document. The plan keeps solved positions in the snapshot, so `apply` now
+  solves inside the transaction — and deliberately does *not* commit a solve
+  that failed to converge, so a contradictory constraint shows the user their
+  own geometry in red rather than a least-squares compromise.
+- **Duplicates are refused.** A second identical relation is pure redundancy:
+  the solver would correctly call the sketch over defined and the user would
+  have no idea why.
+- **Smart dimension picks the dominant axis**, so one tool serves width and
+  height; a pair that is neither clearly horizontal nor vertical gets a
+  straight-line distance.
+- **A selected line resolves to its endpoints.** The plan allows a relation on
+  a line or a point pair and v1 stores the pair, so the UI is where that
+  translation happens.
+- **Shift-click adds to the selection and never starts a drag**, since
+  shift-clicking is how the pair a relation needs is built.
+- **Dimension placement is derived, not stored.** The model has nowhere to keep
+  a user-chosen offset, so each dimension is placed on the far side of the
+  drawing from its centre and repeats are stacked. Dragging a dimension into
+  place needs a schema field and belongs with that work.
 
 ### Step 7: Save/load and export
 

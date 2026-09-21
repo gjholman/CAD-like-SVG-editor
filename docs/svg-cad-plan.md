@@ -355,6 +355,10 @@ Mitigating B's sync risk:
 - **Dragging a point** re-solves with that point pinned and writes the solved document back under one gesture token, so a drag is one undo step.
 - **Drawing on an existing point reuses it**, so joined segments share a point rather than relying on a coincident constraint. Structural topology stays explicit, as the data model section intends.
 - **A chain of segments drawn end to end becomes one path record**, which is how the drawing tools keep the output domain in step with the geometry.
+- **Every edit commits its solve** into the same transaction, so solved positions live in the snapshot as intended. A solve that did not converge is not committed: an over-defined sketch keeps the user's own geometry, in red, rather than a least-squares compromise.
+- **Duplicate relations are refused** at the command layer rather than left to the solver to report as redundancy.
+- **Smart dimension** picks the axis the two points are most separated along, falling back to a straight-line distance on a diagonal.
+- **Dimension placement is derived**, not stored: annotations sit on the far side of the drawing from its centre, and repeats stack. A user-chosen offset needs a schema field and waits for the dimension-placement work.
 
 ---
 
@@ -371,3 +375,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 3b (solver v0) built: all eight v1 constraints with analytic Jacobians checked against finite differences, LM iteration, DOF and per-entity status, conflict reporting, and two-pass dragging. Phase 1's core (model, history, solver) is complete.
 - 2026-09-21: Step 4 (read-only renderer) built: layers as groups, entities as elements, status colours from the solver, pan and zoom. Colours verified in a real browser, not only in jsdom.
 - 2026-09-21: Step 5 (editing v0) built: document edit helpers, hit testing, select and line tools, drag-to-solve, undo/redo on the keyboard, and an editing sandbox at sketch.html. Driven end to end in a real browser.
+- 2026-09-21: Step 6 (constraints and dimensions UI) built: multi-selection, relation commands with the mockup's shortcuts, smart dimensions drawn on the canvas, and an editable relations panel. The plan's rectangle can now be drawn by hand and watched go blue to black. Phase 1 has one step left.

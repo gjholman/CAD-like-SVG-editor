@@ -1,5 +1,12 @@
 export { render, type RenderOptions } from './render';
 export {
+  arrowPath,
+  dimensionGeometry,
+  formatValue,
+  isDimension,
+  type DimensionGeometry,
+} from './dimensions';
+export {
   IDENTITY_VIEWPORT,
   MAX_SCALE,
   MIN_SCALE,

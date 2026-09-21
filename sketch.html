@@ -17,6 +17,14 @@
           <button data-tool="line" aria-pressed="false">Line <kbd>L</kbd></button>
         </div>
 
+        <div class="group" aria-label="Relations">
+          <button data-relation="horizontal" disabled>Horizontal <kbd>&#8679;H</kbd></button>
+          <button data-relation="vertical" disabled>Vertical <kbd>&#8679;V</kbd></button>
+          <button data-relation="coincident" disabled>Coincident <kbd>&#8679;C</kbd></button>
+          <button data-relation="fix" disabled>Fix <kbd>&#8679;F</kbd></button>
+          <button data-action="dimension" disabled>Dimension <kbd>D</kbd></button>
+        </div>
+
         <div class="group">
           <button data-action="undo" disabled>Undo</button>
           <button data-action="redo" disabled>Redo</button>
@@ -29,8 +37,18 @@
         <p class="hint" id="hint"></p>
       </header>
 
-      <div class="canvas">
-        <svg class="sketch-stage" id="stage" aria-label="Sketch canvas"></svg>
+      <div class="workspace">
+        <div class="canvas">
+          <svg class="sketch-stage" id="stage" aria-label="Sketch canvas"></svg>
+        </div>
+
+        <aside class="panel" aria-label="Relations">
+          <h2>Relations <span class="count" id="relation-count">0</span></h2>
+          <div id="relations" class="relations"></div>
+          <p class="empty" id="relations-empty">
+            Select two points, then add a relation. Shift-click to select more than one.
+          </p>
+        </aside>
       </div>
 
       <footer class="bar status">

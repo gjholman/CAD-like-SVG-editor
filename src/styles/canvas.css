@@ -79,3 +79,38 @@
   stroke-dasharray: 5 4;
   opacity: 0.9;
 }
+
+/* Dimensions --------------------------------------------------------------
+   Thin grey annotation that reads as drafting, not as geometry: it must never
+   compete with the sketch lines it measures. */
+:root {
+  --dimline: #56616b;
+}
+
+.sketch-stage .dim-ext,
+.sketch-stage .dim-line {
+  fill: none;
+  stroke: var(--dimline);
+  stroke-width: 1;
+}
+
+.sketch-stage .dim-arrow { fill: var(--dimline); }
+
+.sketch-stage .dim-text {
+  fill: var(--ink);
+  font-family: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  font-weight: 500;
+}
+
+/* A conflicting dimension is one of the things a user most needs to spot. */
+.sketch-stage .dimension.is-over .dim-ext,
+.sketch-stage .dimension.is-over .dim-line { stroke: var(--over); }
+.sketch-stage .dimension.is-over .dim-arrow { fill: var(--over); }
+.sketch-stage .dimension.is-over .dim-text { fill: var(--over); }
+
+.sketch-stage .dimension.is-selected .dim-line { stroke: var(--sel); stroke-width: 2; }
+.sketch-stage .dimension.is-selected .dim-text { fill: var(--sel); }
+
+/* Suspended relations stay visible but greyed, per the plan. */
+.sketch-stage .dimension.is-suspended { opacity: 0.55; }
+.sketch-stage .dimension.is-suspended .dim-line { stroke-dasharray: 4 3; }

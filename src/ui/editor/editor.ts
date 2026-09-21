@@ -11,8 +11,9 @@
  *   selection   transient, not part of the document
  *   tool state  transient (the line tool's chain in progress)
  *
- * v0 tools are select (with drag) and line. Dimensions and relations arrive in
- * Step 6.
+ * v0 tools are select (with drag) and line. Relations and dimensions are
+ * commands on the current selection rather than modal tools, which is how the
+ * mockup's relation buttons and its "select first" shortcuts work.
  */
 import {
   addLine,
@@ -48,9 +49,34 @@ import {
   type Point2,
   type Viewport,
 } from '../render';
+import {
+  canApplyRelation,
+  dimensionEdit,
+  dimensionPlan,
+  relationEdit,
+  setDimensionValue,
+  setSuspended,
+  type DimensionPlan,
+  type RelationKind,
+} from './commands';
 import { hitTest, type Hit } from './hit-test';
 
 export type ToolName = 'select' | 'line';
+
+/** Shift-plus-letter applies a relation to the selection, as in the mockup. */
+const RELATION_KEYS: Readonly<Record<string, RelationKind>> = {
+  h: 'horizontal',
+  v: 'vertical',
+  c: 'coincident',
+  f: 'fix',
+};
+
+const RELATION_LABELS: Readonly<Record<RelationKind, string>> = {
+  horizontal: 'Add horizontal',
+  vertical: 'Add vertical',
+  coincident: 'Add coincident',
+  fix: 'Fix point',
+};
 
 /** Pick radius in screen px, so it feels the same at any zoom. */
 const PICK_TOLERANCE = 8;
@@ -74,6 +100,14 @@ export interface Editor {
   getViewport(): Viewport;
   getSelection(): readonly Id[];
   setSelection(ids: Iterable<Id>): void;
+  /** Whether a relation button should be enabled for the current selection. */
+  canApply(kind: RelationKind): boolean;
+  applyRelation(kind: RelationKind): void;
+  /** What a smart dimension would add right now, for previewing in the UI. */
+  planDimension(): DimensionPlan | undefined;
+  addDimension(): void;
+  setDimensionValue(id: Id, value: number): void;
+  setSuspended(id: Id, suspended: boolean): void;
   getTool(): ToolName;
   setTool(tool: ToolName): void;
   undo(): void;
@@ -125,12 +159,44 @@ export function createEditor(options: EditorOptions): Editor {
     render(root, current(history), { viewport, result, selection, preview });
   }
 
-  /** The single place a change lands: dispatch, re-solve, redraw. */
-  function apply(edit: (doc: SketchDocument) => SketchDocument, label: string, gesture?: string): void {
+  interface ApplyOptions {
+    /** One token for a whole gesture, so a drag is a single undo step. */
+    readonly gesture?: string;
+    /** Points held at a position for this solve, as a drag does. */
+    readonly pinned?: Readonly<Record<Id, Point2>>;
+  }
+
+  /**
+   * The single place a change lands: edit, solve, commit the solved geometry,
+   * redraw.
+   *
+   * The solve is committed *inside* the transaction because the plan keeps
+   * solved positions in the snapshot: undo then restores the exact previous
+   * state without re-solving. A solve that did not converge is left out, so a
+   * contradictory constraint shows the user their own geometry in red rather
+   * than a least-squares compromise they never asked for.
+   */
+  function apply(
+    edit: (doc: SketchDocument) => SketchDocument,
+    label: string,
+    options: ApplyOptions = {},
+  ): void {
     const before = history;
-    history = dispatch(history, edit, { label, gesture });
+    let solved: SolveResult | undefined;
+
+    history = dispatch(
+      history,
+      (doc) => {
+        const edited = edit(doc);
+        if (edited === doc && options.pinned === undefined) return doc;
+        solved = solve(edited, options.pinned === undefined ? {} : { pinned: options.pinned });
+        return solved.converged ? applySolution(edited, solved) : edited;
+      },
+      { label, gesture: options.gesture },
+    );
+
     if (history === before) return;
-    result = solve(current(history));
+    result = solved !== undefined && options.pinned === undefined ? solved : solve(current(history));
     draw();
   }
 
@@ -176,16 +242,24 @@ export function createEditor(options: EditorOptions): Editor {
       return;
     }
 
+    const additive = mouse.shiftKey;
     const hit = pick(at);
+
     if (hit === undefined) {
-      selection = [];
+      // Dimensions sit outside the geometry, so they are picked from the DOM
+      // rather than by the geometric hit test.
+      const dimension = dimensionUnder(mouse);
+      selection = dimension === undefined ? (additive ? selection : []) : toggle(selection, dimension, additive);
       draw();
       return;
     }
     if (isLocked(hit)) return;
 
-    selection = [hit.id];
-    if (hit.kind === 'point') {
+    selection = toggle(selection, hit.id, additive);
+
+    // Dragging starts only on a plain click: shift-clicking is how a user
+    // builds the pair a relation needs, and it must not move anything.
+    if (hit.kind === 'point' && !additive) {
       gestureCounter += 1;
       drag = { pointId: hit.id, gesture: `drag-${gestureCounter}`, moved: false };
     }
@@ -210,11 +284,10 @@ export function createEditor(options: EditorOptions): Editor {
       // The solver runs during the drag with the point pinned to the cursor,
       // so the rest of the sketch follows along whatever freedom it has.
       const dragged = drag;
-      apply(
-        (doc) => applySolution(doc, solve(doc, { pinned: { [dragged.pointId]: at } })),
-        'Move point',
-        dragged.gesture,
-      );
+      apply((doc) => doc, 'Move point', {
+        gesture: dragged.gesture,
+        pinned: { [dragged.pointId]: at },
+      });
       dragged.moved = true;
       return;
     }
@@ -274,6 +347,18 @@ export function createEditor(options: EditorOptions): Editor {
     draw();
   }
 
+  /** Which dimension, if any, the event landed on. */
+  function dimensionUnder(mouse: MouseEvent): Id | undefined {
+    const target = mouse.target;
+    if (!(target instanceof Element)) return undefined;
+    return target.closest('[data-dimension]')?.getAttribute('data-dimension') ?? undefined;
+  }
+
+  function toggle(current: readonly Id[], id: Id, additive: boolean): Id[] {
+    if (!additive) return [id];
+    return current.includes(id) ? current.filter((existing) => existing !== id) : [...current, id];
+  }
+
   function endChain(): void {
     if (chainPoint === undefined) return;
     chainPoint = undefined;
@@ -307,7 +392,20 @@ export function createEditor(options: EditorOptions): Editor {
     }
     if (accel) return;
 
+    if (key.shiftKey) {
+      const relation = RELATION_KEYS[key.key.toLowerCase()];
+      if (relation !== undefined) {
+        event.preventDefault();
+        editor.applyRelation(relation);
+        return;
+      }
+    }
+
     switch (key.key) {
+      case 'd':
+      case 'D':
+        editor.addDimension();
+        break;
       case 'Escape':
         endChain();
         selection = [];
@@ -344,6 +442,24 @@ export function createEditor(options: EditorOptions): Editor {
     setSelection(ids) {
       selection = [...ids];
       draw();
+    },
+    canApply: (kind) => canApplyRelation(kind, current(history), selection),
+    applyRelation(kind) {
+      const edit = relationEdit(kind, current(history), selection, nextId);
+      if (edit === undefined) return;
+      apply(edit, RELATION_LABELS[kind]);
+    },
+    planDimension: () => dimensionPlan(current(history), selection, result.positions),
+    addDimension() {
+      const edit = dimensionEdit(current(history), selection, nextId, result.positions);
+      if (edit === undefined) return;
+      apply(edit, 'Add dimension');
+    },
+    setDimensionValue(id, value) {
+      apply(setDimensionValue(id, value), 'Change dimension');
+    },
+    setSuspended(id, suspended) {
+      apply(setSuspended(id, suspended), suspended ? 'Suspend relation' : 'Resume relation');
     },
     getTool: () => tool,
     setTool(next) {

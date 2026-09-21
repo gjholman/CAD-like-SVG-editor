@@ -21,6 +21,7 @@
  */
 import type { EntityStatus, SolveResult } from '../../core/solver';
 import type { Entity, Id, SketchDocument } from '../../core/model';
+import { arrowPath, dimensionGeometry, type DimensionGeometry } from './dimensions';
 import { viewTransform, type Point2, type Viewport } from './viewport';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -37,6 +38,8 @@ export interface RenderOptions {
    * It is not in the document — nothing is committed until the click lands.
    */
   readonly preview?: { readonly from: Point2; readonly to: Point2 };
+  /** Draw dimension annotations. On by default. */
+  readonly showDimensions?: boolean;
   /**
    * Status and solved geometry. Without it the document's own stored values
    * are drawn and everything renders as under defined, which is the honest
@@ -91,6 +94,9 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
     view.append(group);
   }
 
+  if (options.showDimensions !== false) {
+    view.append(dimensionsGroup(doc, positions, viewport, selection, conflicted));
+  }
   view.append(pointsGroup(doc, positions, viewport, result, overDefined, selection));
   if (options.preview !== undefined) view.append(previewLine(options.preview));
   root.append(view);
@@ -203,6 +209,86 @@ function touchesConflict(entityId: Id, conflicted: ReadonlySet<Id>, doc: SketchD
 function statusClass(status: EntityStatus | undefined, overDefined: boolean): string {
   if (overDefined) return 'is-over';
   return status === 'fully-defined' ? 'is-full' : 'is-under';
+}
+
+function dimensionsGroup(
+  doc: SketchDocument,
+  positions: Readonly<Record<Id, Point2>>,
+  viewport: Viewport,
+  selection: ReadonlySet<Id>,
+  conflicted: ReadonlySet<Id>,
+): Element {
+  const group = element('g', { class: 'sketch-dimensions' });
+
+  for (const dimension of dimensionGeometry(doc, positions, viewport)) {
+    const classes = ['dimension'];
+    if (dimension.suspended) classes.push('is-suspended');
+    if (conflicted.has(dimension.id)) classes.push('is-over');
+    if (selection.has(dimension.id)) classes.push('is-selected');
+
+    const wrapper = element('g', {
+      class: classes.join(' '),
+      'data-dimension': dimension.id,
+    });
+    wrapper.append(...dimensionParts(dimension, viewport));
+    group.append(wrapper);
+  }
+
+  return group;
+}
+
+function dimensionParts(dimension: DimensionGeometry, viewport: Viewport): Element[] {
+  const { from, to, lineFrom, lineTo } = dimension;
+  const parts: Element[] = [];
+
+  // Extension lines run from the measured points out to the dimension line.
+  for (const [point, end] of [
+    [from, lineFrom],
+    [to, lineTo],
+  ] as const) {
+    parts.push(
+      element('line', {
+        class: 'dim-ext',
+        x1: point.x,
+        y1: point.y,
+        x2: end.x,
+        y2: end.y,
+        'vector-effect': 'non-scaling-stroke',
+      }),
+    );
+  }
+
+  parts.push(
+    element('line', {
+      class: 'dim-line',
+      x1: lineFrom.x,
+      y1: lineFrom.y,
+      x2: lineTo.x,
+      y2: lineTo.y,
+      'vector-effect': 'non-scaling-stroke',
+    }),
+    element('path', { class: 'dim-arrow', d: arrowPath(lineFrom, lineTo, viewport) }),
+    element('path', { class: 'dim-arrow', d: arrowPath(lineTo, lineFrom, viewport) }),
+  );
+
+  const text = element('text', {
+    class: 'dim-text',
+    x: dimension.labelAt.x,
+    y: dimension.labelAt.y,
+    'text-anchor': 'middle',
+    // Font size is a world length, so it holds its size on screen as you zoom.
+    'font-size': 13 / viewport.scale,
+  });
+  if (dimension.labelRotation !== 0) {
+    text.setAttribute(
+      'transform',
+      `rotate(${trim(dimension.labelRotation)} ${trim(dimension.labelAt.x)} ${trim(dimension.labelAt.y)})`,
+    );
+  }
+  text.textContent = dimension.label;
+  parts.push(text);
+
+  return parts;
 }
 
 function previewLine(preview: { from: Point2; to: Point2 }): Element {
