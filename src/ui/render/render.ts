@@ -30,6 +30,13 @@ const DOT_RADIUS = 3.5;
 
 export interface RenderOptions {
   readonly viewport: Viewport;
+  /** Entities and points drawn with a selection halo. */
+  readonly selection?: Iterable<Id>;
+  /**
+   * The rubber line a drawing tool trails from its last click to the cursor.
+   * It is not in the document — nothing is committed until the click lands.
+   */
+  readonly preview?: { readonly from: Point2; readonly to: Point2 };
   /**
    * Status and solved geometry. Without it the document's own stored values
    * are drawn and everything renders as under defined, which is the honest
@@ -40,6 +47,7 @@ export interface RenderOptions {
 
 export function render(root: Element, doc: SketchDocument, options: RenderOptions): void {
   const { viewport, result } = options;
+  const selection = new Set<Id>(options.selection ?? []);
 
   root.replaceChildren();
   const view = element('g', { class: 'sketch-view', transform: viewTransform(viewport) });
@@ -61,8 +69,21 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
       if (shape === undefined) continue;
 
       const status = entityClass(entity.id, result?.entityStatus, overDefined, conflicted, doc);
-      const wrapper = element('g', { class: `sketch-entity ${status}`, 'data-entity': entity.id });
+      const selected = selection.has(entity.id);
+      const wrapper = element('g', {
+        class: `sketch-entity ${status}${selected ? ' is-selected' : ''}`,
+        'data-entity': entity.id,
+      });
       if (entity.construction) wrapper.setAttribute('data-construction', 'true');
+      // The halo is a copy of the shape drawn behind it, as in the mockup, so
+      // selection reads clearly without disturbing the status colour.
+      if (selected) {
+        const halo = entityShape(entity, positions, radii);
+        if (halo !== undefined) {
+          halo.setAttribute('class', 'selhalo');
+          wrapper.append(halo);
+        }
+      }
       wrapper.append(shape);
       group.append(wrapper);
     }
@@ -70,7 +91,8 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
     view.append(group);
   }
 
-  view.append(pointsGroup(doc, positions, viewport, result, overDefined));
+  view.append(pointsGroup(doc, positions, viewport, result, overDefined, selection));
+  if (options.preview !== undefined) view.append(previewLine(options.preview));
   root.append(view);
 }
 
@@ -120,6 +142,7 @@ function pointsGroup(
   viewport: Viewport,
   result: SolveResult | undefined,
   overDefined: boolean,
+  selection: ReadonlySet<Id>,
 ): Element {
   const group = element('g', { class: 'sketch-points' });
   // Dots are a screen-space size, so divide out the zoom.
@@ -128,13 +151,14 @@ function pointsGroup(
   for (const id of Object.keys(doc.points).sort()) {
     const point = positions[id] ?? doc.points[id]!;
     const status = statusClass(result?.pointStatus?.[id], overDefined);
+    const selected = selection.has(id);
     group.append(
       element('circle', {
-        class: `dot ${status}`,
+        class: `dot ${status}${selected ? ' is-selected' : ''}`,
         'data-point': id,
         cx: point.x,
         cy: point.y,
-        r: radius,
+        r: selected ? radius * 1.6 : radius,
       }),
     );
   }
@@ -179,6 +203,17 @@ function touchesConflict(entityId: Id, conflicted: ReadonlySet<Id>, doc: SketchD
 function statusClass(status: EntityStatus | undefined, overDefined: boolean): string {
   if (overDefined) return 'is-over';
   return status === 'fully-defined' ? 'is-full' : 'is-under';
+}
+
+function previewLine(preview: { from: Point2; to: Point2 }): Element {
+  return element('line', {
+    class: 'preview',
+    x1: preview.from.x,
+    y1: preview.from.y,
+    x2: preview.to.x,
+    y2: preview.to.y,
+    'vector-effect': 'non-scaling-stroke',
+  });
 }
 
 function element(name: string, attributes: Record<string, string | number>): Element {

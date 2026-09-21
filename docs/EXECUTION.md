@@ -3,7 +3,7 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 4 (read-only renderer) delivered. Next: Step 5 (editing v0).
+**Status:** Step 5 (editing v0) delivered. Next: Step 6 (constraints and dimensions UI).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -31,6 +31,7 @@ Steps 4 to 6 work from it.
 ```
 CAD-like-SVG-editor/
 ├── index.html              landing page (Vite entry point)
+├── sketch.html             editing sandbox that mounts the editor
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts          Vite + Vitest config
@@ -299,10 +300,46 @@ real Chromium: `rgb(32,38,44)` for fully defined, `rgb(47,111,222)` for under
 defined, `rgb(214,54,43)` for over defined, and a dashed grey centreline for
 construction geometry.
 
-### Step 5: Editing v0
+### Step 5: Editing v0 — done
 
 - **Adds:** select tool, line tool, drag a point (solver runs during the drag), all through `dispatch`; Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z wired to history.
 - **Done when:** you can draw a line, drag it, and undo/redo it.
+
+Delivered as `src/core/model/edits.ts` (pure document edits), `src/ui/editor/`
+(hit testing and the editor shell) and `sketch.html` + `src/sketch.ts`, an
+editing sandbox that finally makes the editor reachable in a browser. The
+landing page is untouched; the designed chrome from the mockup arrives with the
+panels in Step 6.
+
+`removeEntity` moved out of the test fixture into `core/model/edits.ts`, as
+this step's entry said it should, and now sits beside `addPoint`, `movePoint`,
+`addLine`, `startPath`, `extendPath`, `closePath` and `pruneOrphanPoints`.
+Tools compose these and hand the result to `dispatch`; nothing in `ui` mutates
+a document.
+
+Settled while building it:
+
+- **A drag re-solves with the point pinned**, then writes the solved document
+  back under one gesture token, so the whole drag is a single undo step and the
+  rest of the sketch follows along whatever freedom it has.
+- **Clicking an existing point reuses it.** Two segments drawn end to end
+  genuinely share a point rather than merely touching, which is how the
+  topology stays explicit.
+- **A chain of segments becomes one path record**, so export in Step 7 finds
+  the structure the plan's option B expects.
+- **The line tool refuses a zero-length segment**, and `extendPath` refuses
+  construction geometry or a member from another layer — `validate` forbids
+  both, so the edit must not be able to build one.
+- **Locked layers cannot be selected or dragged.** Hidden layers are already
+  invisible to the hit test.
+- **The viewport is not in history.** Panning and zooming leave the undo stack
+  alone, per the plan.
+
+jsdom has no pointer events, no layout and no painting, so the whole flow was
+also driven in real Chromium against the dev server: drawing a three-segment
+chain, dragging a corner across eight moves, then undoing back to empty. It
+took **five** undo steps (first point, three lines, one drag), which is the
+gesture coalescing working end to end.
 
 ### Step 6: Constraints and dimensions UI v0
 

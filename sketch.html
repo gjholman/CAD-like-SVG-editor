@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sketch — CAD-like SVG editor</title>
+    <meta name="description" content="Editing sandbox for the CAD-like SVG editor." />
+    <script type="module" src="/src/sketch.ts"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="bar">
+        <span class="brand">Sketch</span>
+
+        <div class="group" role="radiogroup" aria-label="Tool">
+          <button data-tool="select" aria-pressed="true">Select <kbd>V</kbd></button>
+          <button data-tool="line" aria-pressed="false">Line <kbd>L</kbd></button>
+        </div>
+
+        <div class="group">
+          <button data-action="undo" disabled>Undo</button>
+          <button data-action="redo" disabled>Redo</button>
+        </div>
+
+        <div class="group">
+          <button data-action="fit">Zoom to fit</button>
+        </div>
+
+        <p class="hint" id="hint"></p>
+      </header>
+
+      <div class="canvas">
+        <svg class="sketch-stage" id="stage" aria-label="Sketch canvas"></svg>
+      </div>
+
+      <footer class="bar status">
+        <span id="status-dot" class="dotc"></span>
+        <span id="status-text">&nbsp;</span>
+        <span id="dof"></span>
+        <span class="spacer"></span>
+        <span id="coords">X 0.00  Y 0.00 px</span>
+      </footer>
+    </div>
+  </body>
+</html>

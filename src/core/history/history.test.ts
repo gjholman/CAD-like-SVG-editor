@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createRng, randomTransaction, removeEntity } from '../../../tests/fixtures/random-edits';
+import { createRng, randomTransaction } from '../../../tests/fixtures/random-edits';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
-import { createEmptyDocument, createIdGenerator, validate, type SketchDocument } from '../model';
+import { createEmptyDocument, createIdGenerator, removeEntity, validate, type SketchDocument } from '../model';
 import {
   canRedo,
   canUndo,
@@ -221,7 +221,7 @@ describe('random edits', () => {
 
   it('keeps path records in sync when an entity is removed', () => {
     const { doc, lines, path } = rectangleFixture();
-    const trimmed = removeEntity(doc, lines[1]);
+    const trimmed = removeEntity(lines[1])(doc);
 
     expect(trimmed.entities[lines[1]]).toBeUndefined();
     expect(trimmed.paths[path]!.subpaths[0]!.members.map((m) => m.entity)).toEqual([
@@ -234,7 +234,7 @@ describe('random edits', () => {
 
   it('drops a path once its last member goes', () => {
     const { doc, lines, path } = rectangleFixture();
-    const stripped = lines.reduce(removeEntity, doc);
+    const stripped = lines.reduce((current, id) => removeEntity(id)(current), doc);
 
     expect(stripped.paths[path]).toBeUndefined();
     expect(validate(stripped)).toEqual([]);

@@ -27,3 +27,19 @@ export {
   type VerticalDistanceConstraint,
 } from './types';
 export { isValid, validate, type IssueCode, type ValidationIssue } from './validate';
+export {
+  addConstraint,
+  addEntity,
+  addLine,
+  addPoint,
+  closePath,
+  compose,
+  extendPath,
+  movePoint,
+  pruneOrphanPoints,
+  referencedPoints,
+  removeConstraint,
+  removeEntity,
+  startPath,
+  type DocumentEdit,
+} from './edits';

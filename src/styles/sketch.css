@@ -1,0 +1,90 @@
+/*
+ * Chrome for the editing sandbox. Deliberately plain: the real editor chrome
+ * is designed in docs/mockups/ui-mockup-v1.html and arrives with the panels in
+ * Step 6. This page exists so the tools can be used by hand.
+ */
+:root {
+  --c0: #1e2125;
+  --c1: #282c31;
+  --c3: #3b4148;
+  --line: #15171a;
+  --text: #d9dee3;
+  --dim: #93a0ab;
+  --paste: #464c53;
+  --under-ui: #6fa0ff;
+  --over-ui: #ff7466;
+  --full-ui: #e8ecef;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--c0);
+  color: var(--text);
+  font: 14px/1.4 "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.shell { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  height: 40px;
+  background: var(--c1);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar.status { border-bottom: 0; border-top: 1px solid var(--line); font-size: 12px; }
+
+.brand { font-weight: 600; letter-spacing: 0.02em; }
+
+.group { display: flex; gap: 4px; }
+
+button {
+  height: 26px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { background: var(--c3); }
+button[aria-pressed='true'] { background: var(--c3); border-color: #55606a; }
+button:disabled { color: #626d77; cursor: default; }
+
+kbd {
+  padding: 0 4px;
+  border: 1px solid #55606a;
+  border-radius: 3px;
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+}
+
+.hint { margin: 0 0 0 auto; color: var(--dim); font-size: 12px; }
+
+.canvas { position: relative; min-height: 0; background: var(--paste); }
+
+/* The canvas fills its cell; the artboard is the whole surface for now. */
+#stage { position: absolute; inset: 0; }
+
+.spacer { margin-left: auto; }
+
+.dotc { width: 8px; height: 8px; border-radius: 50%; background: var(--full-ui); }
+.dotc.under { background: var(--under-ui); }
+.dotc.over { background: var(--over-ui); }
+.dotc.unsolved { background: #f5c542; }
+.dotc.empty { background: transparent; border: 1px solid #626d77; }
+
+#coords { color: var(--dim); font-variant-numeric: tabular-nums; }

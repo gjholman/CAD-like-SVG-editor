@@ -50,3 +50,32 @@
 .sketch-stage .sketch-layer[data-locked='true'] {
   opacity: 0.75;
 }
+
+/* Selection and drawing feedback ------------------------------------------ */
+:root {
+  --sel: #f5a524;
+}
+
+/* A wide translucent copy behind the shape, so the status colour survives. */
+.sketch-stage .selhalo {
+  fill: none;
+  stroke: var(--sel);
+  stroke-opacity: 0.45;
+  stroke-width: 9;
+}
+
+.sketch-stage .dot.is-selected {
+  stroke: var(--sel);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
+/* The rubber line a drawing tool trails to the cursor. Nothing is committed
+   until the click lands, so it reads as provisional. */
+.sketch-stage .preview {
+  fill: none;
+  stroke: var(--under);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.9;
+}

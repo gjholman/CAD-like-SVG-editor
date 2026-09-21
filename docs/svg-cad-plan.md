@@ -352,6 +352,9 @@ Mitigating B's sync risk:
 - **Rendering status:** carried by `currentColor` and one class per element (`is-full`, `is-under`, `is-over`), matching the mockup. Points are drawn once in their own group and coloured by their own freedom, which is why the solver reports per-point status as well as per-entity.
 - **Canvas draws entities, not paths.** Path records are the output domain and belong to export; the canvas wants one element per entity for hit-testing and per-entity colour.
 - **Line weight is screen-constant** (`vector-effect="non-scaling-stroke"`, dot radius divided by zoom), so zooming never reads as a change to the drawing.
+- **Dragging a point** re-solves with that point pinned and writes the solved document back under one gesture token, so a drag is one undo step.
+- **Drawing on an existing point reuses it**, so joined segments share a point rather than relying on a coincident constraint. Structural topology stays explicit, as the data model section intends.
+- **A chain of segments drawn end to end becomes one path record**, which is how the drawing tools keep the output domain in step with the geometry.
 
 ---
 
@@ -367,3 +370,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 3a (linear algebra) built on pivoted Householder QR; the rectangle's Jacobian confirms 0 DOF fully defined, 1 DOF without the width dimension, and rank 7 from eight rows when the width is dimensioned twice.
 - 2026-09-21: Step 3b (solver v0) built: all eight v1 constraints with analytic Jacobians checked against finite differences, LM iteration, DOF and per-entity status, conflict reporting, and two-pass dragging. Phase 1's core (model, history, solver) is complete.
 - 2026-09-21: Step 4 (read-only renderer) built: layers as groups, entities as elements, status colours from the solver, pan and zoom. Colours verified in a real browser, not only in jsdom.
+- 2026-09-21: Step 5 (editing v0) built: document edit helpers, hit testing, select and line tools, drag-to-solve, undo/redo on the keyboard, and an editing sandbox at sketch.html. Driven end to end in a real browser.

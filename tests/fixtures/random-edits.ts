@@ -3,18 +3,19 @@
  *
  * Every edit here produces a document that `validate` still accepts, so a test
  * can assert the invariants hold at each step as well as after undoing back to
- * the start. Deletion goes through `removeEntity` below, which keeps the path
- * records in sync — the drift that option B's explicit path records risk.
+ * the start. Deletion goes through the real `removeEntity` edit from
+ * `core/model`, which keeps the path records in sync — the drift that option
+ * B's explicit path records risk.
  */
 import type { Transaction } from '../../src/core/history';
 import {
+  removeEntity,
   type Entity,
   type Id,
   type IdGenerator,
   type Layer,
   type PathRecord,
   type SketchDocument,
-  type SubPath,
 } from '../../src/core/model';
 
 /** mulberry32: small, fast, and reproducible from a seed. */
@@ -155,40 +156,9 @@ function applyEdit(doc: SketchDocument, kind: EditKind, source: EditSource): Ske
     case 'remove-entity': {
       const entity = pick(rng, entities);
       if (entity === undefined) return doc;
-      return removeEntity(doc, entity.id);
+      return removeEntity(entity.id)(doc);
     }
   }
-}
-
-/**
- * Drops an entity and everything that referenced it: path members, subpaths
- * left empty, paths left with no subpaths, and any constraint naming it.
- * Points are left alone, since a free point is legal.
- */
-export function removeEntity(doc: SketchDocument, entityId: Id): SketchDocument {
-  if (!Object.hasOwn(doc.entities, entityId)) return doc;
-
-  const entities = { ...doc.entities };
-  delete entities[entityId];
-
-  const paths: Record<Id, PathRecord> = {};
-  for (const path of Object.values(doc.paths)) {
-    const subpaths = path.subpaths
-      .map((subpath): SubPath => ({
-        ...subpath,
-        members: subpath.members.filter((member) => member.entity !== entityId),
-      }))
-      .filter((subpath) => subpath.members.length > 0);
-    if (subpaths.length > 0) paths[path.id] = { ...path, subpaths };
-  }
-
-  const constraints = Object.fromEntries(
-    Object.entries(doc.constraints).filter(
-      ([, constraint]) => !(constraint.kind === 'point-on' && constraint.entity === entityId),
-    ),
-  );
-
-  return { ...doc, entities, paths, constraints };
 }
 
 /** Every entity already claimed by a path. */
