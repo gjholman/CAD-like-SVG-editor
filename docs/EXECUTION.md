@@ -3,8 +3,7 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 3b (solver v0) delivered. Phase 1's core is done. Next: Step 4
-(read-only renderer), the first step that needs the UI design.
+**Status:** Step 4 (read-only renderer) delivered. Next: Step 5 (editing v0).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -70,7 +69,7 @@ This maps onto the two domains in the plan: `core/model` holds the **constraint 
 **Tool:** Vitest, configured in `vite.config.ts`.
 
 - **Default environment is Node**, not a browser. A stray `document` or `window` in `src/core` fails immediately. (`smoke.test.ts` checks this on purpose.)
-- **Tests that need a DOM** opt in per file with `// @vitest-environment jsdom` on the first line (install `jsdom` when the first such test appears).
+- **Tests that need a DOM** opt in per file with `// @vitest-environment jsdom` on the first line. `jsdom` is installed as of Step 4; `render.test.ts` is the first file to use it.
 - **Location:** unit tests sit next to the code (`solver.test.ts` beside `solver.ts`). Cross-module tests and fixtures live in `tests/`.
 - **Scripts:** `npm test` (watch), `npm run test:run` (once), `npm run typecheck`.
 
@@ -261,10 +260,44 @@ central differences at fixed *and* random configurations. A solver with a wrong
 Jacobian often still converges, just slowly, so convergence tests alone would
 not catch one.
 
-### Step 4: Read-only renderer
+### Step 4: Read-only renderer — done
 
 - **Adds:** `ui/render` that draws a document into the SVG DOM: layers as `<g>`, entities as elements, status colors from the solver result; pan and zoom.
 - **Done when:** the hand-built rectangle from Step 1 renders, black once fully defined and blue while loose.
+
+Delivered as `src/ui/render/viewport.ts` (pan and zoom, pure arithmetic, tested
+in plain Node) and `src/ui/render/render.ts` (the DOM), with canvas styling in
+`src/styles/canvas.css`. Colours and line weights come from the mockup, so the
+two stay in step. `jsdom` joins the dev dependencies for the first DOM tests.
+
+Read-only means read-only: the renderer produces elements and nothing else. No
+event handlers, no document mutation. Tools arrive in Step 5.
+
+Settled while building it:
+
+- **Status rides on `currentColor`.** One class per element (`is-full`,
+  `is-under`, `is-over`) sets `color`, and strokes and dots pick it up. Same
+  trick the mockup uses.
+- **Points are drawn once, in their own group**, coloured by their *own*
+  freedom. That needed a new `pointStatus` on the solver result: an entity is
+  under defined when *either* endpoint can move, so its status cannot say which
+  endpoint is the loose one. Same nullspace test, no extra work.
+- **Entities are drawn individually, not through path records.** Path records
+  are the output domain and belong to export (Step 7); the canvas wants one
+  element per entity so it can be hit-tested and coloured on its own.
+- **Only implicated geometry turns red.** An over-defined sketch colours the
+  entities touched by a reported conflict, not the whole drawing.
+- **Stroke width and dot size are constant on screen**, via
+  `vector-effect="non-scaling-stroke"` and a dot radius divided by the zoom.
+  Line weight that grew with zoom would read as a drawing change.
+- **The whole subtree is rebuilt on each call.** No diffing yet: at sketch
+  scale it is fast and it removes a class of stale-DOM bugs. This is the first
+  place to look if dragging a large sketch ever feels slow.
+
+jsdom checks structure but does not paint, so the colours were also verified in
+real Chromium: `rgb(32,38,44)` for fully defined, `rgb(47,111,222)` for under
+defined, `rgb(214,54,43)` for over defined, and a dashed grey centreline for
+construction geometry.
 
 ### Step 5: Editing v0
 

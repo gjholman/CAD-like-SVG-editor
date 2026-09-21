@@ -349,6 +349,9 @@ Mitigating B's sync risk:
 - **Solver residual units:** every residual is in px, including point-on-line, which uses signed distance rather than the raw cross product. Levenberg-Marquardt damps all rows with one lambda, so mixed units would weight them wrongly.
 - **Circle radius is a solver variable**, giving a circle the plan's 3 DOF.
 - **Conflict reporting:** an over-defined sketch names every constraint whose removal would not reduce the Jacobian's rank, i.e. the whole dependent group rather than a guess at which one is wrong.
+- **Rendering status:** carried by `currentColor` and one class per element (`is-full`, `is-under`, `is-over`), matching the mockup. Points are drawn once in their own group and coloured by their own freedom, which is why the solver reports per-point status as well as per-entity.
+- **Canvas draws entities, not paths.** Path records are the output domain and belong to export; the canvas wants one element per entity for hit-testing and per-entity colour.
+- **Line weight is screen-constant** (`vector-effect="non-scaling-stroke"`, dot radius divided by zoom), so zooming never reads as a change to the drawing.
 
 ---
 
@@ -363,3 +366,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 2 (history) built; recorded the gesture-token and history-depth decisions. CI now runs typecheck, tests and build on every push.
 - 2026-09-21: Step 3a (linear algebra) built on pivoted Householder QR; the rectangle's Jacobian confirms 0 DOF fully defined, 1 DOF without the width dimension, and rank 7 from eight rows when the width is dimensioned twice.
 - 2026-09-21: Step 3b (solver v0) built: all eight v1 constraints with analytic Jacobians checked against finite differences, LM iteration, DOF and per-entity status, conflict reporting, and two-pass dragging. Phase 1's core (model, history, solver) is complete.
+- 2026-09-21: Step 4 (read-only renderer) built: layers as groups, entities as elements, status colours from the solver, pan and zoom. Colours verified in a real browser, not only in jsdom.

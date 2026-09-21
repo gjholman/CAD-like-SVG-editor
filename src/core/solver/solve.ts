@@ -49,6 +49,12 @@ export interface SolveResult {
   readonly status: SketchStatus;
   readonly entityStatus: Readonly<Record<Id, EntityStatus>>;
   /**
+   * Per-point status, on the same nullspace test as entities. The renderer
+   * needs this separately: an entity is under defined when *either* endpoint
+   * can move, so its status cannot say which of its points is the loose one.
+   */
+  readonly pointStatus: Readonly<Record<Id, EntityStatus>>;
+  /**
    * Constraints that are redundant or conflicting: each one whose removal
    * would not reduce the rank. Empty unless the status is over defined.
    */
@@ -122,12 +128,15 @@ export function solve(doc: SketchDocument, options: SolveOptions = {}): SolveRes
         ? 'fully-defined'
         : 'under-defined';
 
+  const freedoms = nullspace(final.jacobian);
+
   return {
     positions: readPositions(doc, variables, x),
     radii: readRadii(doc, variables, x),
     dof,
     status,
-    entityStatus: readEntityStatus(doc, variables, final.jacobian),
+    entityStatus: readEntityStatus(doc, variables, freedoms),
+    pointStatus: readPointStatus(doc, variables, freedoms),
     conflicts,
     converged,
     iterations,
@@ -261,20 +270,34 @@ function readRadii(doc: SketchDocument, variables: VariableMap, x: Float64Array)
 function readEntityStatus(
   doc: SketchDocument,
   variables: VariableMap,
-  jacobian: Matrix,
+  freedoms: readonly (readonly number[])[],
 ): Record<Id, EntityStatus> {
-  const freedoms = nullspace(jacobian);
   const status: Record<Id, EntityStatus> = {};
-
   for (const entity of Object.values(doc.entities)) {
-    const indices = entityVariables(entity, variables);
-    const free = freedoms.some((direction) =>
-      indices.some((index) => Math.abs(direction[index] ?? 0) > FREEDOM_THRESHOLD),
-    );
-    status[entity.id] = free ? 'under-defined' : 'fully-defined';
+    status[entity.id] = statusOf(entityVariables(entity, variables), freedoms);
   }
-
   return status;
+}
+
+function readPointStatus(
+  doc: SketchDocument,
+  variables: VariableMap,
+  freedoms: readonly (readonly number[])[],
+): Record<Id, EntityStatus> {
+  const status: Record<Id, EntityStatus> = {};
+  for (const id of Object.keys(doc.points)) {
+    const index = variables.pointIndex.get(id);
+    status[id] = index === undefined ? 'under-defined' : statusOf([index, index + 1], freedoms);
+  }
+  return status;
+}
+
+/** Fully defined when no remaining free direction touches these variables. */
+function statusOf(indices: readonly number[], freedoms: readonly (readonly number[])[]): EntityStatus {
+  const free = freedoms.some((direction) =>
+    indices.some((index) => Math.abs(direction[index] ?? 0) > FREEDOM_THRESHOLD),
+  );
+  return free ? 'under-defined' : 'fully-defined';
 }
 
 /**

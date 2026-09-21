@@ -1,0 +1,52 @@
+/*
+ * Canvas styling for the sketch renderer.
+ *
+ * Colours and line weights come from docs/mockups/ui-mockup-v1.html so the
+ * real canvas and the mockup stay in step. Status is carried by `color`, which
+ * the shapes pick up through `currentColor`: one class on an element colours
+ * its stroke and its dots together.
+ */
+:root {
+  --paper: #fbfcfc;
+
+  --ink: #20262c;         /* fully defined */
+  --under: #2f6fde;       /* under defined */
+  --over: #d6362b;        /* over defined */
+  --construction: #8b96a0;
+}
+
+.sketch-stage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--paper);
+}
+
+.is-full { color: var(--ink); }
+.is-under { color: var(--under); }
+.is-over { color: var(--over); }
+
+.sketch-stage .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Construction geometry constrains but never exports, so it reads as a
+   centreline rather than as part of the drawing. */
+.sketch-stage .center {
+  fill: none;
+  stroke: var(--construction);
+  stroke-width: 1;
+  stroke-dasharray: 10 3 2 3;
+}
+
+.sketch-stage .dot {
+  fill: currentColor;
+}
+
+.sketch-stage .sketch-layer[data-locked='true'] {
+  opacity: 0.75;
+}
