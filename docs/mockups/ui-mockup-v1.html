@@ -1,0 +1,992 @@
+<title>CAD-like SVG Editor</title>
+<meta name="description" content="Interactive UI mockup: an Adobe- and SolidWorks-inspired sketch editor with tool shortcuts and live constraint status.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   Design plan
+   Color   c0 #1e2125 (menu/status chrome) · c1 #282c31 (panels/toolbar) ·
+           paper #fbfcfc (artboard) · ink #20262c (fully defined) ·
+           under #2f6fde (under defined) · over #d6362b (over defined) ·
+           sel #f5a524 (selection)
+   Type    Barlow Semi Condensed (display: tool names, dimension text) +
+           Barlow (UI body text)
+   Layout  Fixed app chrome (menu / control bar / toolbar+canvas+panels /
+           status bar) around a light drafting-sheet artboard, so the
+           editor's own status colors read the way they do in SolidWorks.
+
+   This commits deliberately to one dark professional-tool chrome (the
+   Adobe/SolidWorks convention), the way a single-theme app would; the
+   artboard itself stays a fixed light "paper" regardless of OS theme,
+   since a CAD sketch sheet is always light. Background and every color
+   are set explicitly rather than left to inherit.
+   ========================================================================== */
+:root {
+  --c0: #1e2125;          /* deepest chrome: menu bar, status bar */
+  --c1: #282c31;          /* panels, toolbar */
+  --c2: #31363c;          /* panel headers */
+  --c3: #3b4148;          /* hover */
+  --line: #15171a;
+  --line-soft: #3d444b;
+  --text: #d9dee3;
+  --dim: #93a0ab;
+  --faint: #6b7681;
+
+  --paste: #464c53;       /* pasteboard around the artboard */
+  --paper: #fbfcfc;       /* artboard */
+  --grid-minor: #eef1f3;
+  --grid-major: #dde3e8;
+
+  --ink: #20262c;         /* fully defined, on the artboard */
+  --under: #2f6fde;       /* under defined, on the artboard */
+  --over: #d6362b;        /* over defined, on the artboard */
+  --sel: #f5a524;         /* selection highlight */
+  --dimline: #56616b;
+
+  --under-ui: #6fa0ff;    /* status dots on dark chrome */
+  --over-ui: #ff7466;
+  --full-ui: #e8ecef;
+
+  --font-ui: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", "Barlow", system-ui, sans-serif;
+
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--c0);
+  color: var(--text);
+  font: 400 12.5px/1.35 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: default; }
+input { font: inherit; }
+kbd { font: inherit; }
+:focus-visible { outline: 2px solid var(--under-ui); outline-offset: 1px; }
+
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.i { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* Tooltips: any element with data-tip, placed with tip-right / tip-below / tip-left */
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute; z-index: 60;
+  white-space: nowrap;
+  padding: 4px 8px;
+  background: #0f1113; color: var(--text);
+  border: 1px solid var(--line-soft); border-radius: 4px;
+  font-size: 11.5px; line-height: 1.3;
+  pointer-events: none;
+  animation: tipin 100ms 400ms both;
+}
+.tip-right:hover::after { left: calc(100% + 8px); top: 50%; transform: translateY(-50%); }
+.tip-below:hover::after { top: calc(100% + 6px); left: 50%; transform: translateX(-50%); }
+.tip-left:hover::after  { right: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
+@keyframes tipin { from { opacity: 0; } to { opacity: 1; } }
+
+/* ==========================================================================
+   App grid
+   ========================================================================== */
+.app {
+  height: 100%;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: grid; grid-template-rows: 32px 40px minmax(0, 1fr) 26px; min-height: 0;
+}
+.workspace { display: grid; grid-template-columns: 48px minmax(0, 1fr) 292px; min-height: 0; }
+.app.panels-hidden .workspace { grid-template-columns: 0 minmax(0, 1fr) 0; }
+.app.panels-hidden .toolbar, .app.panels-hidden .panels { display: none; }
+
+/* Menu bar ---------------------------------------------------------------- */
+.menubar { display: flex; align-items: center; gap: 2px; padding: 0 8px; background: var(--c0); border-bottom: 1px solid var(--line); flex: none; }
+.logo { width: 18px; height: 18px; margin: 0 8px 0 2px; }
+.menu { padding: 4px 9px; border-radius: 4px; }
+.menu:hover { background: var(--c3); }
+.grow { flex: 1; }
+.iconbtn { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 4px; }
+.iconbtn:hover:not([disabled]) { background: var(--c3); }
+.iconbtn[disabled] { opacity: 0.35; }
+.btn { padding: 4px 12px; border-radius: 5px; background: var(--c3); border: 1px solid var(--line-soft); }
+.btn:hover { background: #454c54; }
+.btn-primary { margin-left: 8px; background: var(--full-ui); color: #1b1f23; border-color: var(--full-ui); font-weight: 500; }
+.btn-primary:hover { background: #fff; }
+
+/* Control bar (context-sensitive, like Illustrator) ----------------------- */
+.controlbar { display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--c1); border-bottom: 1px solid var(--line); overflow-x: auto; white-space: nowrap; }
+.cb-title { min-width: 56px; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; }
+.cb-note { color: var(--dim); }
+.sep { width: 1px; height: 20px; background: var(--line-soft); flex: none; }
+.field { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); }
+.field input {
+  width: 66px; height: 24px; padding: 0 6px;
+  background: var(--c0); border: 1px solid var(--line); border-radius: 4px;
+  color: var(--text); text-align: right;
+  font-family: var(--font-display); font-weight: 500; font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.field input:disabled { color: var(--faint); background: transparent; border-style: dashed; border-color: var(--line-soft); }
+.field em { font-style: normal; color: var(--faint); }
+.check { display: inline-flex; align-items: center; gap: 6px; }
+.check input { margin: 0; accent-color: #d9dee3; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.seg button { padding: 3px 10px; background: var(--c0); color: var(--dim); }
+.seg button.on { background: var(--c3); color: #fff; }
+.select { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 9px; background: var(--c0); border: 1px solid var(--line); border-radius: 4px; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 2px 10px; border-radius: 999px; background: var(--c0); border: 1px solid var(--line); }
+.dotc { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.dotc.full { background: var(--full-ui); }
+.dotc.under { background: var(--under-ui); }
+.dotc.over { background: var(--over-ui); }
+
+/* Toolbar (like Illustrator, with flyout corners and key badges) ---------- */
+.toolbar { position: relative; z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: var(--c1); border-right: 1px solid var(--line); overflow-y: auto; }
+.toolbar hr { width: 24px; margin: 5px 0; border: 0; border-top: 1px solid var(--line-soft); flex: none; }
+.tool { position: relative; width: 38px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 5px; }
+.tool:hover { background: var(--c3); }
+.tool.active { background: var(--full-ui); color: #1b1f23; }
+.tool kbd { position: absolute; top: 2px; right: 4px; font: 500 8.5px/1 var(--font-display); color: var(--faint); }
+.tool.active kbd { color: #5c6670; }
+.tool.has-flyout::before {
+  content: ""; position: absolute; right: 2px; bottom: 2px;
+  border: 3px solid transparent; border-right-color: var(--faint); border-bottom-color: var(--faint);
+}
+.tool.active.has-flyout::before { border-right-color: #5c6670; border-bottom-color: #5c6670; }
+.toolbar .bottom { margin-top: auto; }
+
+/* Canvas ------------------------------------------------------------------ */
+.canvas-wrap { display: grid; grid-template-rows: 30px minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--c1); }
+.tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 8px; background: var(--c0); border-bottom: 1px solid var(--line); }
+.tab { height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 5px 5px 0 0; color: var(--dim); }
+.tab.on { background: var(--c1); color: var(--text); }
+.tab .mod { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.tabs .zoom { margin-left: auto; align-self: center; color: var(--dim); font-family: var(--font-display); font-weight: 500; }
+
+.canvas { position: relative; min-height: 0; overflow: hidden; background: var(--paste); }
+.canvas.tool-draw { cursor: crosshair; }
+.canvas.tool-hand { cursor: grab; }
+.canvas.tool-zoom { cursor: zoom-in; }
+.canvas.panning { cursor: grabbing; }
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ruler { position: absolute; z-index: 1; pointer-events: none; background: var(--c1); }
+.ruler-x { left: 0; top: 0; width: 100%; height: 20px; border-bottom: 1px solid var(--line); }
+.ruler-y { left: 0; top: 0; width: 20px; height: 100%; border-right: 1px solid var(--line); }
+.ruler line { stroke: var(--faint); stroke-width: 1; }
+.ruler text { fill: var(--dim); font: 500 9px var(--font-display); }
+.ruler-corner { position: absolute; z-index: 2; left: 0; top: 0; width: 20px; height: 20px; background: var(--c1); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+.hud {
+  position: absolute; z-index: 3; top: 30px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 2px; padding: 3px;
+  background: rgba(30, 33, 37, 0.94); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  max-width: calc(100% - 16px); overflow-x: auto;
+}
+.hud button { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 5px; color: var(--dim); white-space: nowrap; }
+.hud button:hover { background: var(--c3); }
+.hud button.on { color: var(--text); }
+.hud .led { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.hud button.on .led { background: var(--full-ui); }
+.hud kbd { color: var(--faint); font: 500 10px var(--font-display); }
+
+.ctx {
+  position: absolute; z-index: 4; display: flex; gap: 2px; padding: 3px;
+  transform: translate(-50%, -100%);
+  background: #14171a; border: 1px solid var(--line-soft); border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.ctx::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px;
+  background: #14171a; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
+  transform: translateX(-50%) rotate(45deg);
+}
+.ctx button { width: 28px; height: 26px; display: grid; place-items: center; border-radius: 5px; }
+.ctx button:hover { background: var(--c3); }
+.ctx .sep { align-self: stretch; height: auto; margin: 3px 2px; }
+
+.toast {
+  position: absolute; z-index: 6; left: 50%; bottom: 16px;
+  padding: 6px 12px; background: #14171a; border: 1px solid var(--line-soft); border-radius: 6px;
+  transform: translate(-50%, 6px); opacity: 0; pointer-events: none;
+  transition: opacity 150ms, transform 150ms;
+  max-width: calc(100% - 32px); text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Sketch drawing vocabulary (inside #stage) -------------------------------- */
+.is-under { color: var(--under); }
+.is-full  { color: var(--ink); }
+.is-over  { color: var(--over); }
+#stage .paper { fill: var(--paper); }
+#stage .shadow { fill: #000; opacity: 0.28; }
+#stage .edge { fill: none; stroke: #000; stroke-opacity: 0.3; }
+#stage .gm { fill: none; stroke: var(--grid-minor); stroke-width: 1; }
+#stage .gM { fill: none; stroke: var(--grid-major); stroke-width: 1; }
+#stage.hide-grid .gridrect { display: none; }
+#stage .ab-name { fill: #aab3bb; font: 500 11px var(--font-display); }
+#stage .line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#stage .dot { fill: currentColor; }
+#stage .center { fill: none; stroke: #8b96a0; stroke-width: 1; stroke-dasharray: 10 3 2 3; }
+#stage .dim { fill: none; stroke: var(--dimline); stroke-width: 1; }
+#stage .dim-arrow { fill: var(--dimline); }
+#stage .dim-arrow-r { fill: var(--over); }
+#stage .dim-text { fill: var(--ink); font: 500 13px var(--font-display); }
+#stage .fx { fill: #7a8791; font: italic 500 9px var(--font-ui); }
+#stage .is-over .dim { stroke: var(--over); }
+#stage .is-over .dim-text { fill: var(--over); }
+#stage .xl { fill: none; stroke: #6b7681; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#stage .xdim.suspended .dimline { stroke-dasharray: 4 3; opacity: 0.7; }
+#stage .xdim.suspended .dim-text { fill: #8a949d; }
+#stage .xdim:not(.suspended) .pause-ic { display: none; }
+#stage .pause-ic { fill: none; stroke: #8a949d; stroke-width: 2.6; stroke-linecap: round; }
+#stage .glyph rect { fill: #fff; stroke: #69737d; stroke-width: 1; }
+#stage .glyph use { fill: none; stroke: #4b555f; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+#stage.hide-glyphs .glyph { display: none; }
+#stage.hide-dims .dims { display: none; }
+#stage .selhalo { fill: none; stroke: var(--sel); stroke-opacity: 0.4; stroke-width: 9; }
+#stage .handle { fill: #fff; stroke: var(--sel); stroke-width: 1.5; }
+#stage .badge-bg { fill: var(--over); }
+#stage .badge-t { fill: #fff; font: 600 12px var(--font-ui); text-anchor: middle; }
+
+/* Panels (like Illustrator, with a SolidWorks-style property manager) ------ */
+.panels { min-height: 0; overflow-y: auto; background: var(--c1); border-left: 1px solid var(--line); }
+.panel { border-bottom: 1px solid var(--line); }
+.panel-head { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 10px; background: var(--c2); text-align: left; font-family: var(--font-display); font-weight: 600; font-size: 13px; }
+.panel-head .i { transition: transform 120ms; }
+.panel.collapsed .panel-head .i { transform: rotate(-90deg); }
+.panel.collapsed .panel-body { display: none; }
+.panel-head .count { margin-left: auto; color: var(--dim); font-family: var(--font-ui); font-weight: 400; font-size: 12px; }
+.panel-body { padding: 10px; }
+.panel-body.tight { padding: 6px; }
+.pname { font-family: var(--font-display); font-weight: 600; font-size: 15px; line-height: 1.2; }
+.psub, .sub { color: var(--dim); font-size: 11.5px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin-top: 10px; }
+.grid2 .wide { grid-column: 1 / -1; }
+.panel .field { display: flex; }
+.panel .field > span { width: 14px; }
+.panel .field input { flex: 1; width: 100%; min-width: 0; }
+.panel .field em { width: 16px; }
+.note { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 8px 10px; background: var(--c0); border: 1px solid var(--line); border-radius: 6px; }
+.note .dotc { margin-top: 4px; }
+.note b { font-weight: 600; }
+.sect { margin: 14px 0 4px; display: flex; align-items: center; justify-content: space-between; color: var(--dim); font-weight: 500; }
+.rel { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 6px; border-radius: 5px; }
+.rel:hover { background: var(--c2); }
+.rel .name { font-weight: 500; }
+.rel.suspended .name { color: var(--dim); }
+.rel .acts { display: flex; gap: 2px; }
+.rel .acts button { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--dim); }
+.rel .acts button:hover { background: var(--c3); color: var(--text); }
+.tag { display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--c0); border: 1px solid var(--line); color: var(--dim); font-size: 11px; }
+.tag.warn { color: var(--sel); border-color: #6b4d12; }
+.addrel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 4px; }
+.addrel button { display: grid; justify-items: center; gap: 1px; padding: 6px 2px 4px; background: var(--c0); border: 1px solid var(--line); border-radius: 5px; }
+.addrel button:hover { background: var(--c3); }
+.addrel span { color: var(--dim); font-size: 11px; }
+.addrel b { font: 500 10px var(--font-display); color: var(--faint); }
+
+.lrow { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 4px; border-radius: 4px; }
+.lrow:hover { background: var(--c2); }
+.lrow.child { margin-left: 44px; padding-left: 4px; }
+.lrow.sel { background: rgba(245, 165, 36, 0.16); box-shadow: inset 2px 0 0 var(--sel); }
+.lrow .ib { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 4px; color: var(--dim); }
+.lrow .ib:hover { background: var(--c3); color: var(--text); }
+.chip { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.c-outline { background: #7fc8a9; }
+.c-holes { background: #c9a0dc; }
+.c-scratch { background: #f0c674; }
+.lname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.child .lname { color: var(--text); }
+.ltype { color: var(--faint); font-size: 11px; }
+.xnote { display: flex; align-items: center; gap: 6px; margin: 6px 4px 2px; padding-top: 8px; border-top: 1px solid var(--line-soft); color: var(--dim); }
+
+.prow { display: grid; grid-template-columns: 62px minmax(0, 1fr) 36px; gap: 6px; align-items: center; margin-bottom: 5px; }
+.prow .pn { font-weight: 500; }
+.prow input { height: 24px; padding: 0 6px; background: var(--c0); border: 1px solid var(--line); border-radius: 4px; color: var(--text); font-family: var(--font-display); font-weight: 500; font-size: 13px; }
+.prow .pv { text-align: right; color: var(--dim); font-family: var(--font-display); font-weight: 500; }
+.btn-ghost { margin-top: 4px; width: 100%; background: transparent; border-style: dashed; color: var(--dim); display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+/* Status bar (SolidWorks-style definition state) ---------------------------- */
+.statusbar { display: flex; align-items: center; gap: 18px; padding: 0 10px; background: var(--c0); border-top: 1px solid var(--line); color: var(--dim); white-space: nowrap; overflow: hidden; flex: none; }
+.statusbar .hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stat { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
+.coords { min-width: 132px; text-align: right; font-family: var(--font-display); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Shortcut sheet ------------------------------------------------------------ */
+.overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(10, 12, 14, 0.62); }
+.sheet { width: min(900px, 100%); max-height: 100%; overflow: auto; padding: 18px 22px 16px; background: var(--c1); border: 1px solid var(--line-soft); border-radius: 10px; }
+.sheet-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.sheet h2 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 20px; }
+.sheet h3 { margin: 0 0 6px; font-family: var(--font-display); font-weight: 600; font-size: 14px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 22px; }
+.sk { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.k { padding: 1px 7px; background: var(--c0); border: 1px solid var(--line-soft); border-bottom-width: 2px; border-radius: 4px; font: 500 11.5px var(--font-display); color: var(--text); white-space: nowrap; }
+.sheet .foot { margin: 14px 0 0; color: var(--dim); }
+
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: 48px minmax(0, 1fr); }
+  .panels { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+
+<!-- Icon sprite -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-select" viewBox="0 0 24 24"><path d="M6 3v15l4-4 3 6 2.4-1.1-3-5.9H18z"/></symbol>
+    <symbol id="i-line" viewBox="0 0 24 24"><path d="M5 19L19 5"/><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="5" r="1.6"/></symbol>
+    <symbol id="i-rect" viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="10" rx="0.5"/></symbol>
+    <symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="0.8"/></symbol>
+    <symbol id="i-arc" viewBox="0 0 24 24"><path d="M5 18a9 9 0 0 1 14 0"/><circle cx="5" cy="18" r="1.4"/><circle cx="19" cy="18" r="1.4"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M5 18C7 5 17 5 19 18"/><rect x="3.6" y="16.6" width="2.8" height="2.8"/><rect x="17.6" y="16.6" width="2.8" height="2.8"/></symbol>
+    <symbol id="i-dim" viewBox="0 0 24 24"><path d="M4 8v8M20 8v8M4 12h16"/><path d="M4 12l3-1.8v3.6zM20 12l-3-1.8v3.6z" fill="currentColor"/></symbol>
+    <symbol id="i-trim" viewBox="0 0 24 24"><path d="M4 12h6M14 12h6"/><path d="M12 4v16"/></symbol>
+    <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M12 3v18" stroke-dasharray="2 2"/><path d="M4 8l6 4-6 4z"/><path d="M20 8l-6 4 6 4z"/></symbol>
+    <symbol id="i-offset" viewBox="0 0 24 24"><path d="M5 19V10a5 5 0 0 1 5-5h9"/><path d="M9 19v-5a5 5 0 0 1 5-5h5"/></symbol>
+    <symbol id="i-construct" viewBox="0 0 24 24"><path d="M3 12h4M10 12h4M17 12h4"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="M12 3l-2.5 2.8h5zM12 21l-2.5-2.8h5zM3 12l2.8-2.5v5zM21 12l-2.8-2.5v5z" fill="currentColor"/></symbol>
+    <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l5 5"/></symbol>
+    <symbol id="i-horizontal" viewBox="0 0 24 24"><path d="M4 12h16"/><circle cx="4" cy="12" r="1.5"/><circle cx="20" cy="12" r="1.5"/></symbol>
+    <symbol id="i-vertical" viewBox="0 0 24 24"><path d="M12 4v16"/><circle cx="12" cy="4" r="1.5"/><circle cx="12" cy="20" r="1.5"/></symbol>
+    <symbol id="i-coincident" viewBox="0 0 24 24"><rect x="9.5" y="9.5" width="5" height="5"/><path d="M3 21l6.5-6.5M21 3l-6.5 6.5"/></symbol>
+    <symbol id="i-equal" viewBox="0 0 24 24"><path d="M6 9h12M6 15h12"/></symbol>
+    <symbol id="i-tangent" viewBox="0 0 24 24"><circle cx="12" cy="15" r="5"/><path d="M4 10h16"/></symbol>
+    <symbol id="i-fix" viewBox="0 0 24 24"><rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M9 11V8a3 3 0 0 1 6 0v3"/></symbol>
+    <symbol id="i-parallel" viewBox="0 0 24 24"><path d="M7 19L13 5M13 19L19 5"/></symbol>
+    <symbol id="i-perp" viewBox="0 0 24 24"><path d="M12 4v16M4 20h16"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 6L4 11l5 5"/><path d="M4 11h10a5 5 0 0 1 0 10h-3"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 6l5 5-5 5"/><path d="M20 11H10a5 5 0 0 0 0 10h3"/></symbol>
+    <symbol id="i-caret" viewBox="0 0 24 24"><path d="M7 9l5 5 5-5"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 6l10 6-10 6z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></symbol>
+  </defs>
+</svg>
+
+<div class="app" id="app">
+
+  <!-- Menu bar -->
+  <header class="menubar">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect x="6" y="6" width="20" height="20" fill="none" stroke="#d9dee3" stroke-width="3"/><circle cx="6" cy="6" r="3.8" fill="#6fa0ff"/></svg>
+    <button class="menu">File</button>
+    <button class="menu">Edit</button>
+    <button class="menu">View</button>
+    <button class="menu">Sketch</button>
+    <button class="menu">Layers</button>
+    <button class="menu" data-open-shortcuts>Help</button>
+    <span class="grow"></span>
+    <button class="iconbtn tip-below" data-tip="Undo (⌘Z)" aria-label="Undo"><svg class="i" width="16" height="16"><use href="#i-undo"/></svg></button>
+    <button class="iconbtn tip-below" data-tip="Redo (⇧⌘Z)" aria-label="Redo" disabled><svg class="i" width="16" height="16"><use href="#i-redo"/></svg></button>
+    <button class="btn btn-primary">Export SVG</button>
+  </header>
+
+  <!-- Control bar: changes with the active tool -->
+  <div class="controlbar" id="bar" aria-live="polite"></div>
+
+  <div class="workspace">
+
+    <!-- Toolbar -->
+    <nav class="toolbar" aria-label="Tools">
+      <button class="tool tip-right" data-tool="select" data-tip="Select (V)" aria-label="Select"><svg class="i" width="20" height="20"><use href="#i-select"/></svg><kbd>V</kbd></button>
+      <hr>
+      <button class="tool tip-right has-flyout" data-tool="line" data-tip="Line (L)" aria-label="Line"><svg class="i" width="20" height="20"><use href="#i-line"/></svg><kbd>L</kbd></button>
+      <button class="tool tip-right has-flyout" data-tool="rect" data-tip="Rectangle (R)" aria-label="Rectangle"><svg class="i" width="20" height="20"><use href="#i-rect"/></svg><kbd>R</kbd></button>
+      <button class="tool tip-right has-flyout" data-tool="circle" data-tip="Circle (C)" aria-label="Circle"><svg class="i" width="20" height="20"><use href="#i-circle"/></svg><kbd>C</kbd></button>
+      <button class="tool tip-right" data-tool="arc" data-tip="Arc (A)" aria-label="Arc"><svg class="i" width="20" height="20"><use href="#i-arc"/></svg><kbd>A</kbd></button>
+      <button class="tool tip-right" data-tool="pen" data-tip="Pen, Bézier curve (P)" aria-label="Pen"><svg class="i" width="20" height="20"><use href="#i-pen"/></svg><kbd>P</kbd></button>
+      <hr>
+      <button class="tool tip-right" data-tool="trim" data-tip="Trim (T)" aria-label="Trim"><svg class="i" width="20" height="20"><use href="#i-trim"/></svg><kbd>T</kbd></button>
+      <button class="tool tip-right" data-tool="mirror" data-tip="Mirror (M)" aria-label="Mirror"><svg class="i" width="20" height="20"><use href="#i-mirror"/></svg><kbd>M</kbd></button>
+      <button class="tool tip-right" data-tool="offset" data-tip="Offset (O)" aria-label="Offset"><svg class="i" width="20" height="20"><use href="#i-offset"/></svg><kbd>O</kbd></button>
+      <hr>
+      <button class="tool tip-right" data-tool="dim" data-tip="Smart dimension (D)" aria-label="Smart dimension"><svg class="i" width="20" height="20"><use href="#i-dim"/></svg><kbd>D</kbd></button>
+      <hr>
+      <button class="tool tip-right" data-tool="hand" data-tip="Pan (H, or hold Space)" aria-label="Pan"><svg class="i" width="20" height="20"><use href="#i-hand"/></svg><kbd>H</kbd></button>
+      <button class="tool tip-right" data-tool="zoom" data-tip="Zoom (Z)" aria-label="Zoom"><svg class="i" width="20" height="20"><use href="#i-zoom"/></svg><kbd>Z</kbd></button>
+      <button class="tool tip-right bottom" data-action="construct" data-tip="Toggle construction (X)" aria-label="Toggle construction"><svg class="i" width="20" height="20"><use href="#i-construct"/></svg><kbd>X</kbd></button>
+    </nav>
+
+    <!-- Canvas -->
+    <section class="canvas-wrap">
+      <div class="tabs">
+        <button class="tab on"><span>bracket.json</span><span class="mod" title="Unsaved changes"></span></button>
+        <button class="tab" aria-label="New document"><svg class="i" width="14" height="14"><use href="#i-plus"/></svg></button>
+        <span class="zoom">100%</span>
+      </div>
+
+      <div class="canvas" id="canvas">
+        <svg id="stage" aria-label="Sketch canvas" role="img">
+          <defs>
+            <pattern id="g10" width="10" height="10" patternUnits="userSpaceOnUse"><path class="gm" d="M10 0H0V10"/></pattern>
+            <pattern id="g100" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#g10)"/><path class="gM" d="M100 0H0V100"/></pattern>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dim-arrow" d="M0 1.5L10 5L0 8.5z"/></marker>
+            <marker id="arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dim-arrow-r" d="M0 1.5L10 5L0 8.5z"/></marker>
+          </defs>
+
+          <!-- Artboard -->
+          <text class="ab-name" x="0" y="-8">Artboard 1, 720 × 480 px</text>
+          <rect class="shadow" x="4" y="6" width="720" height="480"/>
+          <rect class="paper" width="720" height="480"/>
+          <rect class="gridrect" width="720" height="480" fill="url(#g100)"/>
+          <rect class="edge" width="720" height="480"/>
+
+          <!-- Layer: Outline (fully defined) -->
+          <g id="outline" class="is-full">
+            <path class="line" d="M80 90H520A40 40 0 0 1 560 130V330H80Z"/>
+            <circle class="dot" cx="520" cy="90" r="3.5"/>
+            <circle class="dot" cx="560" cy="130" r="3.5"/>
+            <circle class="dot" cx="560" cy="330" r="3.5"/>
+            <circle class="dot" cx="80" cy="330" r="3.5"/>
+            <rect class="dot" x="75.5" y="85.5" width="9" height="9"/>
+          </g>
+
+          <!-- Layer: Holes -->
+          <path class="center" d="M200 210H440"/>
+          <g id="hole1" class="is-full">
+            <circle class="line" cx="200" cy="210" r="28"/>
+            <circle class="dot" cx="200" cy="210" r="3"/>
+          </g>
+          <g id="hole2" class="is-under">
+            <circle class="selhalo" cx="440" cy="210" r="28"/>
+            <circle class="line" cx="440" cy="210" r="28"/>
+            <circle class="dot" cx="440" cy="210" r="3"/>
+          </g>
+          <g aria-hidden="true">
+            <rect class="handle" x="409" y="207" width="6" height="6"/>
+            <rect class="handle" x="465" y="207" width="6" height="6"/>
+            <rect class="handle" x="437" y="179" width="6" height="6"/>
+            <rect class="handle" x="437" y="235" width="6" height="6"/>
+          </g>
+
+          <!-- Layer: Scratch (over defined: two lengths on one edge) -->
+          <g id="scratch" class="is-over">
+            <path class="line" d="M600 370H660V430H600Z"/>
+            <circle class="dot" cx="600" cy="370" r="3.5"/>
+            <circle class="dot" cx="660" cy="370" r="3.5"/>
+            <circle class="dot" cx="660" cy="430" r="3.5"/>
+            <circle class="dot" cx="600" cy="430" r="3.5"/>
+            <g class="dims">
+              <path class="dim" d="M600 436V474M660 436V474"/>
+              <path class="dim" d="M600 446H660" marker-start="url(#arr-r)" marker-end="url(#arr-r)"/>
+              <path class="dim" d="M600 468H660" marker-start="url(#arr-r)" marker-end="url(#arr-r)"/>
+              <text class="dim-text" x="630" y="441" text-anchor="middle">60</text>
+              <text class="dim-text" x="630" y="463" text-anchor="middle">64</text>
+            </g>
+            <g transform="translate(690 452)">
+              <title>Conflict: two different lengths on one edge</title>
+              <circle class="badge-bg" r="9"/>
+              <text class="badge-t" y="4.5">!</text>
+            </g>
+          </g>
+
+          <!-- Dimensions -->
+          <g class="dims">
+            <!-- width -->
+            <path class="dim" d="M80 336V372M560 336V372"/>
+            <path class="dim" d="M80 364H560" marker-start="url(#arr)" marker-end="url(#arr)"/>
+            <text class="dim-text" x="320" y="358" text-anchor="middle">480</text>
+            <!-- height (driven by the equation height = width / 2) -->
+            <path class="dim" d="M74 90H30M74 330H30"/>
+            <path class="dim" d="M40 90V330" marker-start="url(#arr)" marker-end="url(#arr)"/>
+            <text class="dim-text" transform="translate(34 210) rotate(-90)" text-anchor="middle">240<tspan class="fx" dx="3">fx</tspan></text>
+            <!-- corner radius -->
+            <path class="dim" d="M548.3 101.7L590 64H610" marker-start="url(#arr)"/>
+            <text class="dim-text" x="614" y="68">R40</text>
+            <!-- hole 1 diameter -->
+            <path class="dim" d="M180.2 190.2L152 162H120" marker-start="url(#arr)"/>
+            <text class="dim-text" x="116" y="166" text-anchor="end">Ø56</text>
+            <!-- hole 1 to outline left edge (relation across layers, active) -->
+            <path class="dim" d="M200 240V290"/>
+            <path class="dim" d="M80 282H200" marker-start="url(#arr)" marker-end="url(#arr)"/>
+            <text class="dim-text" x="140" y="276" text-anchor="middle">120</text>
+            <use class="xl" href="#i-link" x="156" y="266" width="11" height="11"/>
+            <!-- hole 2 to outline right edge (relation across layers, suspended) -->
+            <g id="xdim" class="xdim suspended">
+              <path class="dim" d="M440 240V290"/>
+              <path class="dim dimline" d="M440 282H560" marker-start="url(#arr)" marker-end="url(#arr)"/>
+              <text class="dim-text" x="478" y="276" text-anchor="middle">120</text>
+              <use class="pause-ic" href="#i-pause" x="494" y="265" width="12" height="12"/>
+              <use class="xl" href="#i-link" x="510" y="266" width="11" height="11"/>
+            </g>
+          </g>
+
+          <!-- Relation glyphs -->
+          <g>
+            <g class="glyph" transform="translate(56 66)"><rect width="16" height="16" rx="3"/><use href="#i-fix" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(292 68)"><rect width="16" height="16" rx="3"/><use href="#i-horizontal" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(54 202)"><rect width="16" height="16" rx="3"/><use href="#i-vertical" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(512 64)"><rect width="16" height="16" rx="3"/><use href="#i-tangent" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(570 122)"><rect width="16" height="16" rx="3"/><use href="#i-tangent" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(312 202)"><rect width="16" height="16" rx="3"/><use href="#i-horizontal" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(164 232)"><rect width="16" height="16" rx="3"/><use href="#i-equal" x="2" y="2" width="12" height="12"/></g>
+            <g class="glyph" transform="translate(396 232)"><rect width="16" height="16" rx="3"/><use href="#i-equal" x="2" y="2" width="12" height="12"/></g>
+          </g>
+        </svg>
+
+        <svg class="ruler ruler-x" id="rx" aria-hidden="true"></svg>
+        <svg class="ruler ruler-y" id="ry" aria-hidden="true"></svg>
+        <div class="ruler-corner"></div>
+
+        <div class="hud" role="toolbar" aria-label="View options">
+          <button data-hud="grid" class="on" aria-pressed="true"><i class="led"></i>Grid <kbd>G</kbd></button>
+          <button data-hud="snap" class="on" aria-pressed="true"><i class="led"></i>Snap</button>
+          <button data-hud="relations" class="on" aria-pressed="true"><i class="led"></i>Relations</button>
+          <button data-hud="dims" class="on" aria-pressed="true"><i class="led"></i>Dimensions</button>
+        </div>
+
+        <!-- Context toolbar next to the selection (SolidWorks-style) -->
+        <div class="ctx" id="ctx" role="toolbar" aria-label="Actions for the selected circle">
+          <button class="tip-below" data-tip="Equal (⇧E)" aria-label="Equal"><svg class="i" width="16" height="16"><use href="#i-equal"/></svg></button>
+          <button class="tip-below" data-tip="Horizontal (⇧H)" aria-label="Horizontal"><svg class="i" width="16" height="16"><use href="#i-horizontal"/></svg></button>
+          <button class="tip-below" data-tip="Vertical (⇧V)" aria-label="Vertical"><svg class="i" width="16" height="16"><use href="#i-vertical"/></svg></button>
+          <button class="tip-below" data-tip="Coincident (⇧C)" aria-label="Coincident"><svg class="i" width="16" height="16"><use href="#i-coincident"/></svg></button>
+          <span class="sep"></span>
+          <button class="tip-below" data-tip="Dimension (D)" aria-label="Dimension"><svg class="i" width="16" height="16"><use href="#i-dim"/></svg></button>
+          <button class="tip-below" data-tip="Construction (X)" aria-label="Toggle construction"><svg class="i" width="16" height="16"><use href="#i-construct"/></svg></button>
+          <span class="sep"></span>
+          <button class="tip-below" data-tip="Delete (⌫)" aria-label="Delete"><svg class="i" width="16" height="16"><use href="#i-trash"/></svg></button>
+        </div>
+
+        <div class="toast" id="toast" role="status"></div>
+      </div>
+    </section>
+
+    <!-- Panels -->
+    <aside class="panels" aria-label="Panels">
+
+      <section class="panel" id="p-props">
+        <button class="panel-head" aria-expanded="true"><svg class="i" width="12" height="12"><use href="#i-caret"/></svg><span>Properties</span></button>
+        <div class="panel-body">
+          <div class="pname">Hole 2</div>
+          <div class="psub">Circle on layer Holes</div>
+
+          <div class="grid2">
+            <label class="field"><span>X</span><input value="440.00" aria-label="Center X"><em>px</em></label>
+            <label class="field"><span>Y</span><input value="210.00" aria-label="Center Y"><em>px</em></label>
+            <label class="field wide"><span>Ø</span><input value="56.00" disabled aria-label="Diameter"><em>px</em></label>
+          </div>
+          <div class="psub" style="margin-top:4px">Diameter is driven by the Equal relation to Hole 1.</div>
+
+          <div class="note" id="dofnote"></div>
+
+          <div class="sect"><span>Relations</span></div>
+          <div class="rel">
+            <svg class="i" width="16" height="16"><use href="#i-equal"/></svg>
+            <div><div class="name">Equal</div><div class="sub">Diameter, with Hole 1</div></div>
+            <div class="acts"><button class="tip-left" data-tip="Delete" aria-label="Delete relation"><svg class="i" width="14" height="14"><use href="#i-trash"/></svg></button></div>
+          </div>
+          <div class="rel">
+            <svg class="i" width="16" height="16"><use href="#i-horizontal"/></svg>
+            <div><div class="name">Horizontal</div><div class="sub">Center, with Hole 1 center</div></div>
+            <div class="acts"><button class="tip-left" data-tip="Delete" aria-label="Delete relation"><svg class="i" width="14" height="14"><use href="#i-trash"/></svg></button></div>
+          </div>
+          <div class="rel suspended" id="rel-x">
+            <svg class="i" width="16" height="16"><use href="#i-link"/></svg>
+            <div>
+              <div class="name">Distance 120 px</div>
+              <div class="sub">Center X to right edge <span class="tag">Outline</span> <span class="tag warn" id="susp-tag">suspended</span></div>
+            </div>
+            <div class="acts">
+              <button id="btn-susp" class="tip-left" data-tip="Resume relation (⇧⌘L)" aria-label="Resume or suspend relation"></button>
+              <button class="tip-left" data-tip="Delete" aria-label="Delete relation"><svg class="i" width="14" height="14"><use href="#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <div class="sect"><span>Add relation</span></div>
+          <div class="addrel">
+            <button><svg class="i" width="16" height="16"><use href="#i-horizontal"/></svg><span>Horizontal</span><b>⇧H</b></button>
+            <button><svg class="i" width="16" height="16"><use href="#i-vertical"/></svg><span>Vertical</span><b>⇧V</b></button>
+            <button><svg class="i" width="16" height="16"><use href="#i-coincident"/></svg><span>Coincident</span><b>⇧C</b></button>
+            <button><svg class="i" width="16" height="16"><use href="#i-equal"/></svg><span>Equal</span><b>⇧E</b></button>
+            <button><svg class="i" width="16" height="16"><use href="#i-tangent"/></svg><span>Tangent</span><b>⇧T</b></button>
+            <button><svg class="i" width="16" height="16"><use href="#i-fix"/></svg><span>Fix</span><b>⇧F</b></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="p-layers">
+        <button class="panel-head" aria-expanded="true"><svg class="i" width="12" height="12"><use href="#i-caret"/></svg><span>Layers</span><span class="count">3</span></button>
+        <div class="panel-body tight">
+          <div class="lrow">
+            <button class="ib" aria-label="Hide Outline"><svg class="i" width="14" height="14"><use href="#i-eye"/></svg></button>
+            <button class="ib" aria-label="Lock Outline"><svg class="i" width="14" height="14"><use href="#i-fix"/></svg></button>
+            <i class="chip c-outline"></i><span class="lname">Outline</span><i class="dotc full"></i>
+          </div>
+          <div class="lrow child"><span class="lname">Outline profile</span><span class="ltype">path</span><i class="dotc full"></i></div>
+
+          <div class="lrow">
+            <button class="ib" aria-label="Hide Holes"><svg class="i" width="14" height="14"><use href="#i-eye"/></svg></button>
+            <button class="ib" aria-label="Lock Holes"><svg class="i" width="14" height="14"><use href="#i-fix"/></svg></button>
+            <i class="chip c-holes"></i><span class="lname">Holes</span><i class="dotc under" id="dot-holes"></i>
+          </div>
+          <div class="lrow child"><span class="lname">Hole 1</span><span class="ltype">circle</span><i class="dotc full"></i></div>
+          <div class="lrow child sel"><span class="lname">Hole 2</span><span class="ltype">circle</span><i class="dotc under" id="dot-hole2"></i></div>
+
+          <div class="lrow">
+            <button class="ib" aria-label="Hide Scratch"><svg class="i" width="14" height="14"><use href="#i-eye"/></svg></button>
+            <button class="ib" aria-label="Lock Scratch"><svg class="i" width="14" height="14"><use href="#i-fix"/></svg></button>
+            <i class="chip c-scratch"></i><span class="lname">Scratch</span><i class="dotc over"></i>
+          </div>
+          <div class="lrow child"><span class="lname">Test square</span><span class="ltype">path</span><i class="dotc over"></i></div>
+
+          <div class="xnote"><svg class="i" width="14" height="14"><use href="#i-link"/></svg><span>Relations across layers: <span id="xcount">1 active, 1 suspended</span></span></div>
+        </div>
+      </section>
+
+      <section class="panel" id="p-params">
+        <button class="panel-head" aria-expanded="true"><svg class="i" width="12" height="12"><use href="#i-caret"/></svg><span>Parameters</span><span class="count">4</span></button>
+        <div class="panel-body">
+          <div class="prow"><span class="pn">width</span><input value="480" aria-label="width"><span class="pv">480</span></div>
+          <div class="prow"><span class="pn">height</span><input value="width / 2" aria-label="height"><span class="pv">240</span></div>
+          <div class="prow"><span class="pn">corner_r</span><input value="40" aria-label="corner_r"><span class="pv">40</span></div>
+          <div class="prow"><span class="pn">hole_d</span><input value="56" aria-label="hole_d"><span class="pv">56</span></div>
+          <button class="btn btn-ghost"><svg class="i" width="14" height="14"><use href="#i-plus"/></svg>Add parameter</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- Status bar -->
+  <footer class="statusbar">
+    <span class="hint" id="hint"></span>
+    <span class="stat"><i class="dotc full"></i><span id="cnt-full">2</span> fully defined</span>
+    <span class="stat"><i class="dotc under"></i><span id="cnt-under">1</span> under defined</span>
+    <span class="stat"><i class="dotc over"></i><span id="cnt-over">1</span> over defined</span>
+    <span class="coords" id="coords">X 0.00  Y 0.00 px</span>
+  </footer>
+</div>
+
+<!-- Keyboard shortcuts -->
+<div class="overlay" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet-head">
+      <h2 id="sheet-title">Keyboard shortcuts</h2>
+      <button class="btn" id="sheet-close">Close (Esc)</button>
+    </div>
+    <div class="cols">
+      <div>
+        <h3>Tools</h3>
+        <div class="sk"><span>Select</span><kbd class="k">V</kbd></div>
+        <div class="sk"><span>Line</span><kbd class="k">L</kbd></div>
+        <div class="sk"><span>Rectangle</span><kbd class="k">R</kbd></div>
+        <div class="sk"><span>Circle</span><kbd class="k">C</kbd></div>
+        <div class="sk"><span>Arc</span><kbd class="k">A</kbd></div>
+        <div class="sk"><span>Pen (Bézier)</span><kbd class="k">P</kbd></div>
+        <div class="sk"><span>Smart dimension</span><kbd class="k">D</kbd></div>
+        <div class="sk"><span>Trim</span><kbd class="k">T</kbd></div>
+        <div class="sk"><span>Mirror</span><kbd class="k">M</kbd></div>
+        <div class="sk"><span>Offset</span><kbd class="k">O</kbd></div>
+        <div class="sk"><span>Pan</span><kbd class="k">H</kbd></div>
+        <div class="sk"><span>Zoom</span><kbd class="k">Z</kbd></div>
+        <div class="sk"><span>Toggle construction</span><kbd class="k">X</kbd></div>
+      </div>
+      <div>
+        <h3>Relations (select first)</h3>
+        <div class="sk"><span>Horizontal</span><kbd class="k">⇧H</kbd></div>
+        <div class="sk"><span>Vertical</span><kbd class="k">⇧V</kbd></div>
+        <div class="sk"><span>Coincident</span><kbd class="k">⇧C</kbd></div>
+        <div class="sk"><span>Parallel</span><kbd class="k">⇧P</kbd></div>
+        <div class="sk"><span>Perpendicular</span><kbd class="k">⇧R</kbd></div>
+        <div class="sk"><span>Tangent</span><kbd class="k">⇧T</kbd></div>
+        <div class="sk"><span>Equal</span><kbd class="k">⇧E</kbd></div>
+        <div class="sk"><span>Symmetric</span><kbd class="k">⇧S</kbd></div>
+        <div class="sk"><span>Midpoint</span><kbd class="k">⇧M</kbd></div>
+        <div class="sk"><span>Fix</span><kbd class="k">⇧F</kbd></div>
+        <div class="sk"><span>Suspend or resume a cross-layer relation</span><kbd class="k">⇧⌘L</kbd></div>
+      </div>
+      <div>
+        <h3>Edit</h3>
+        <div class="sk"><span>Undo</span><kbd class="k">⌘Z</kbd></div>
+        <div class="sk"><span>Redo</span><kbd class="k">⇧⌘Z</kbd></div>
+        <div class="sk"><span>Select all</span><kbd class="k">⌘A</kbd></div>
+        <div class="sk"><span>Copy</span><kbd class="k">⌘C</kbd></div>
+        <div class="sk"><span>Paste</span><kbd class="k">⌘V</kbd></div>
+        <div class="sk"><span>Delete</span><kbd class="k">⌫</kbd></div>
+        <div class="sk"><span>Deselect, or finish the tool</span><kbd class="k">Esc</kbd></div>
+      </div>
+      <div>
+        <h3>View</h3>
+        <div class="sk"><span>Pan from any tool</span><kbd class="k">Space</kbd></div>
+        <div class="sk"><span>Zoom</span><kbd class="k">Scroll</kbd></div>
+        <div class="sk"><span>Fit artboard</span><kbd class="k">⌘0</kbd></div>
+        <div class="sk"><span>Zoom to 100%</span><kbd class="k">⌘1</kbd></div>
+        <div class="sk"><span>Toggle grid</span><kbd class="k">G</kbd></div>
+        <div class="sk"><span>Hide or show panels</span><kbd class="k">Tab</kbd></div>
+        <div class="sk"><span>This sheet</span><kbd class="k">?</kbd></div>
+      </div>
+    </div>
+    <p class="foot">On Windows and Linux, use Ctrl in place of ⌘.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  const AW = 720, AH = 480, RULER = 20;   // artboard size in px; ruler thickness
+  const app = $('#app'), canvas = $('#canvas'), stage = $('#stage');
+  const rx = $('#rx'), ry = $('#ry'), ctx = $('#ctx');
+  const toast = $('#toast'), hint = $('#hint'), bar = $('#bar'), coords = $('#coords');
+  const sheet = $('#sheet');
+
+  let tool = 'select';
+  let suspended = true;      // the cross-layer distance on Hole 2 starts suspended
+  let offX = 0, offY = 0;    // where the artboard's top-left sits inside the canvas
+
+  /* --- Layout: keep the artboard centered at 1:1 and draw rulers ------------ */
+  function rulers(w, h) {
+    let sx = '', sy = '';
+    for (let x = Math.ceil((RULER - offX) / 10) * 10; x + offX < w; x += 10) {
+      const p = x + offX, major = x % 100 === 0;
+      sx += `<line x1="${p}" x2="${p}" y1="${major ? 6 : 14}" y2="20"/>` + (major ? `<text x="${p + 3}" y="10">${x}</text>` : '');
+    }
+    for (let y = Math.ceil((RULER - offY) / 10) * 10; y + offY < h; y += 10) {
+      const p = y + offY, major = y % 100 === 0;
+      sy += `<line y1="${p}" y2="${p}" x1="${major ? 6 : 14}" x2="20"/>` + (major ? `<text transform="translate(10 ${p - 3}) rotate(-90)">${y}</text>` : '');
+    }
+    rx.setAttribute('viewBox', `0 0 ${w} 20`); rx.innerHTML = sx;
+    ry.setAttribute('viewBox', `0 0 20 ${h}`); ry.innerHTML = sy;
+  }
+  function layout() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    offX = Math.round(RULER + (w - RULER - AW) / 2);
+    offY = Math.round(RULER + (h - RULER - AH) / 2);
+    stage.setAttribute('viewBox', `${-offX} ${-offY} ${w} ${h}`);
+    rulers(w, h);
+    ctx.style.left = (offX + 440) + 'px';
+    ctx.style.top = (offY + 210 - 28 - 14) + 'px';
+  }
+  new ResizeObserver(layout).observe(canvas);
+
+  /* --- Control bar templates ------------------------------------------------ */
+  const f = (label, val, unit = 'px', dis = false) =>
+    `<label class="field"><span>${label}</span><input value="${val}" ${dis ? 'disabled' : ''} aria-label="${label}"><em>${unit}</em></label>`;
+  const chk = (label, on = false) =>
+    `<label class="check"><input type="checkbox" ${on ? 'checked' : ''}><span>${label}</span></label>`;
+  const seg = (items, on = 0) =>
+    `<span class="seg">${items.map((t, i) => `<button type="button" class="${i === on ? 'on' : ''}">${t}</button>`).join('')}</span>`;
+  const sel = t => `<button type="button" class="select">${t}<svg class="i" width="12" height="12"><use href="#i-caret"/></svg></button>`;
+  const sep = '<span class="sep"></span>';
+  const ic = (id, s = 14) => `<svg class="i" width="${s}" height="${s}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+  const title = t => `<span class="cb-title">${t}</span>`;
+
+  const TOOLS = {
+    select: {
+      name: 'Select',
+      hint: 'Click to select, Shift-click to add. Drag a point or line and the solver keeps every relation satisfied.',
+      bar: () => title('Circle') + f('X', '440.00') + f('Y', '210.00') + f('Ø', '56.00', 'px', true) + sep + sel('Layer: Holes') + sep + chk('Construction') + sep +
+        (suspended ? '<span class="pill"><i class="dotc under"></i>1 degree of freedom</span>' : '<span class="pill"><i class="dotc full"></i>Fully defined</span>')
+    },
+    line: {
+      name: 'Line',
+      hint: 'Click to place the start point, click again for the end. Near horizontal or vertical, the relation is added for you. Esc to finish.',
+      bar: () => title('Line') + f('Length', '') + f('Angle', '', '°') + sep + chk('Construction') + chk('Infinite')
+    },
+    rect: {
+      name: 'Rectangle',
+      hint: 'Click one corner, then the opposite corner. Coincident, horizontal and vertical relations are added for you.',
+      bar: () => title('Rectangle') + f('Width', '') + f('Height', '') + sep + chk('From center') + chk('Construction')
+    },
+    circle: {
+      name: 'Circle',
+      hint: 'Click the center, then click or type a diameter. Click an existing point to use it as the center.',
+      bar: () => title('Circle') + f('Diameter', '') + sep + chk('Construction')
+    },
+    arc: {
+      name: 'Arc',
+      hint: 'Centerpoint arc: click the center, the start, then the end. Start from an endpoint to make it tangent.',
+      bar: () => title('Arc') + seg(['Centerpoint', '3 point', 'Tangent']) + sep + chk('Construction')
+    },
+    pen: {
+      name: 'Pen',
+      hint: 'Click to add an anchor, drag to pull out handles. Joins are smooth by default; Alt-click an anchor to make it a corner.',
+      bar: () => title('Pen') + chk('Smooth joins', true) + chk('Equal handle lengths') + sep + chk('Construction')
+    },
+    dim: {
+      name: 'Smart dimension',
+      hint: 'Click a line, a point, or two entities, then click to place the dimension. Type a value to drive the geometry.',
+      bar: () => title('Dimension') + f('Value', '') + `<label class="field"><span>Name</span><input value="" aria-label="Name" style="text-align:left"></label>` + sep + chk('Driven (reference only)')
+    },
+    trim: {
+      name: 'Trim',
+      hint: 'Click a segment to trim it to the nearest intersections. Drag across several to trim them all.',
+      bar: () => title('Trim') + seg(['Trim to closest', 'Power trim'])
+    },
+    mirror: {
+      name: 'Mirror',
+      hint: 'Pick a mirror line, then the entities to mirror. Copies stay symmetric to the originals.',
+      bar: () => title('Mirror') + chk('Keep original', true) + chk('Symmetric relations', true)
+    },
+    offset: {
+      name: 'Offset',
+      hint: 'Select entities, then drag or type a distance. The offset stays at that distance from the original.',
+      bar: () => title('Offset') + f('Distance', '') + sep + chk('Both sides') + chk('Select chain', true)
+    },
+    hand: {
+      name: 'Pan',
+      hint: 'Drag to pan. Holding Space pans from any tool.',
+      bar: () => title('Pan') + '<span class="cb-note">Drag the canvas to move it.</span>'
+    },
+    zoom: {
+      name: 'Zoom',
+      hint: 'Click to zoom in, Alt-click to zoom out, drag to zoom to a rectangle.',
+      bar: () => title('Zoom') + '<button class="btn">Fit artboard  ⌘0</button><button class="btn">100%  ⌘1</button>'
+    }
+  };
+  const DRAW = ['line', 'rect', 'circle', 'arc', 'pen', 'dim'];
+
+  function setTool(id) {
+    if (!TOOLS[id]) return;
+    tool = id;
+    $$('.tool[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === id));
+    bar.innerHTML = TOOLS[id].bar();
+    hint.textContent = TOOLS[id].hint;
+    canvas.classList.toggle('tool-draw', DRAW.includes(id));
+    canvas.classList.toggle('tool-hand', id === 'hand');
+    canvas.classList.toggle('tool-zoom', id === 'zoom');
+    ctx.hidden = id !== 'select';
+  }
+  $('.toolbar').addEventListener('click', e => {
+    const b = e.target.closest('.tool');
+    if (!b) return;
+    if (b.dataset.tool) setTool(b.dataset.tool);
+    else say('Construction toggled for the selection');
+  });
+
+  /* --- Toast ---------------------------------------------------------------- */
+  let toastTimer;
+  function say(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  /* --- Suspend / resume the cross-layer distance on Hole 2 ------------------ */
+  function setSuspended(flag, quiet) {
+    suspended = flag;
+    $('#xdim').classList.toggle('suspended', flag);
+    $('#rel-x').classList.toggle('suspended', flag);
+    $('#susp-tag').hidden = !flag;
+    const btn = $('#btn-susp');
+    btn.innerHTML = ic(flag ? 'play' : 'pause');
+    btn.dataset.tip = flag ? 'Resume relation (⇧⌘L)' : 'Suspend relation (⇧⌘L)';
+    const h2 = $('#hole2');
+    h2.classList.toggle('is-under', flag);
+    h2.classList.toggle('is-full', !flag);
+    const st = flag ? 'under' : 'full';
+    $('#dot-hole2').className = 'dotc ' + st;
+    $('#dot-holes').className = 'dotc ' + st;
+    $('#dofnote').innerHTML = flag
+      ? '<i class="dotc under"></i><div><b>1 degree of freedom left</b><div class="sub">Center X can still move. Resume the suspended distance, or add a dimension.</div></div>'
+      : '<i class="dotc full"></i><div><b>Fully defined</b><div class="sub">Nothing on this circle can move.</div></div>';
+    $('#cnt-full').textContent = flag ? 2 : 3;
+    $('#cnt-under').textContent = flag ? 1 : 0;
+    $('#xcount').textContent = flag ? '1 active, 1 suspended' : '2 active';
+    if (tool === 'select') bar.innerHTML = TOOLS.select.bar();
+    if (!quiet) say(flag ? 'Suspended: distance to the Outline right edge' : 'Resumed: distance to the Outline right edge');
+  }
+  $('#btn-susp').addEventListener('click', () => setSuspended(!suspended));
+
+  /* --- HUD toggles ---------------------------------------------------------- */
+  const HUD = { grid: 'hide-grid', relations: 'hide-glyphs', dims: 'hide-dims' };
+  function toggleHud(k) {
+    const b = $(`.hud [data-hud="${k}"]`);
+    const on = b.classList.toggle('on');
+    b.setAttribute('aria-pressed', String(on));
+    if (HUD[k]) stage.classList.toggle(HUD[k], !on);
+    if (k === 'snap') say(on ? 'Snap on' : 'Snap off');
+  }
+  $('.hud').addEventListener('click', e => {
+    const b = e.target.closest('[data-hud]');
+    if (b) toggleHud(b.dataset.hud);
+  });
+
+  /* --- Panels --------------------------------------------------------------- */
+  $$('.panel-head').forEach(h => h.addEventListener('click', () => {
+    const c = h.parentElement.classList.toggle('collapsed');
+    h.setAttribute('aria-expanded', String(!c));
+  }));
+
+  /* --- Shortcut sheet ------------------------------------------------------- */
+  function toggleSheet(force) {
+    sheet.hidden = force === undefined ? !sheet.hidden : !force;
+  }
+  $('#sheet-close').addEventListener('click', () => toggleSheet(false));
+  sheet.addEventListener('click', e => { if (e.target === sheet) toggleSheet(false); });
+  $$('[data-open-shortcuts]').forEach(b => b.addEventListener('click', () => toggleSheet(true)));
+
+  /* --- Keyboard ------------------------------------------------------------- */
+  const KEYS = { KeyV: 'select', KeyL: 'line', KeyR: 'rect', KeyC: 'circle', KeyA: 'arc', KeyP: 'pen',
+                 KeyD: 'dim', KeyT: 'trim', KeyM: 'mirror', KeyO: 'offset', KeyH: 'hand', KeyZ: 'zoom' };
+  const RELS = { KeyH: 'Horizontal', KeyV: 'Vertical', KeyC: 'Coincident', KeyP: 'Parallel', KeyR: 'Perpendicular',
+                 KeyT: 'Tangent', KeyE: 'Equal', KeyS: 'Symmetric', KeyM: 'Midpoint', KeyF: 'Fix' };
+
+  window.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      if (e.key === 'Escape') e.target.blur();
+      return;
+    }
+    if (e.key === '?') { toggleSheet(); e.preventDefault(); return; }
+    if (e.key === 'Escape') { if (!sheet.hidden) toggleSheet(false); else setTool('select'); return; }
+    if (!sheet.hidden) return;
+
+    if (e.code === 'Space') {
+      if (!e.repeat) {
+        canvas.classList.add('panning');
+        hint.textContent = `Panning. Drag to move the canvas; release Space to return to the ${TOOLS[tool].name} tool.`;
+      }
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Tab' && e.target === document.body) { app.classList.toggle('panels-hidden'); e.preventDefault(); return; }
+
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod) {
+      if (e.code === 'KeyZ') { say(e.shiftKey ? 'Redo' : 'Undo'); e.preventDefault(); }
+      else if (e.code === 'KeyL' && e.shiftKey) { setSuspended(!suspended); e.preventDefault(); }
+      else if (e.code === 'Digit0') { say('Fit artboard'); e.preventDefault(); }
+      else if (e.code === 'Digit1') { say('Zoom 100%'); e.preventDefault(); }
+      return;
+    }
+    if (e.altKey) return;
+    if (e.shiftKey) {
+      const r = RELS[e.code];
+      if (r) { say(`${r} relation (⇧${e.code.slice(3)})`); e.preventDefault(); }
+      return;
+    }
+    if (e.code === 'KeyX') { say('Construction toggled for the selection'); return; }
+    if (e.code === 'KeyG') { toggleHud('grid'); return; }
+    const id = KEYS[e.code];
+    if (id) setTool(id);
+  });
+  window.addEventListener('keyup', e => {
+    if (e.code === 'Space') {
+      canvas.classList.remove('panning');
+      hint.textContent = TOOLS[tool].hint;
+    }
+  });
+
+  /* --- Cursor readout ------------------------------------------------------- */
+  canvas.addEventListener('pointermove', e => {
+    const r = canvas.getBoundingClientRect();
+    coords.textContent = `X ${(e.clientX - r.left - offX).toFixed(2)}  Y ${(e.clientY - r.top - offY).toFixed(2)} px`;
+  });
+
+  /* --- Start ---------------------------------------------------------------- */
+  setSuspended(true, true);
+  setTool('select');
+  layout();
+})();
+</script>
