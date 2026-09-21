@@ -9,7 +9,9 @@
  * Viewport state is deliberately *not* part of the document or of history:
  * panning is not an undoable edit (a plan decision).
  */
-import type { SketchDocument } from '../../core/model';
+import type { Bounds, Point2 } from '../../core/geometry';
+
+export type { Bounds, Point2 };
 
 export interface Viewport {
   /** World coordinate shown at the top-left of the canvas. */
@@ -19,21 +21,9 @@ export interface Viewport {
   readonly scale: number;
 }
 
-export interface Point2 {
-  readonly x: number;
-  readonly y: number;
-}
-
 export interface Size {
   readonly width: number;
   readonly height: number;
-}
-
-export interface Bounds {
-  readonly minX: number;
-  readonly minY: number;
-  readonly maxX: number;
-  readonly maxY: number;
 }
 
 export const IDENTITY_VIEWPORT: Viewport = { panX: 0, panY: 0, scale: 1 };
@@ -104,44 +94,4 @@ export function fitTo(bounds: Bounds, size: Size, padding = 24): Viewport {
 export function viewTransform(viewport: Viewport): string {
   const { panX, panY, scale } = viewport;
   return `translate(${-panX * scale} ${-panY * scale}) scale(${scale})`;
-}
-
-/**
- * Extent of the drawing, from solved positions when there are any. Circles
- * count their whole disc, not just the centre, so `fitTo` does not clip them.
- */
-export function sketchBounds(
-  doc: SketchDocument,
-  positions: Readonly<Record<string, Point2>> = doc.points,
-  radii: Readonly<Record<string, number>> = {},
-): Bounds | undefined {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let seen = false;
-
-  const include = (x: number, y: number) => {
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
-    seen = true;
-  };
-
-  for (const id of Object.keys(doc.points)) {
-    const point = positions[id] ?? doc.points[id]!;
-    include(point.x, point.y);
-  }
-
-  for (const entity of Object.values(doc.entities)) {
-    if (entity.kind !== 'circle') continue;
-    const centre = positions[entity.center] ?? doc.points[entity.center];
-    if (centre === undefined) continue;
-    const radius = radii[entity.id] ?? entity.radius;
-    include(centre.x - radius, centre.y - radius);
-    include(centre.x + radius, centre.y + radius);
-  }
-
-  return seen ? { minX, minY, maxX, maxY } : undefined;
 }

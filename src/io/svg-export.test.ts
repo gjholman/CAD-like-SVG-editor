@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../tests/fixtures/rectangle';
 import {
+  addArc,
   addLine,
   addPoint,
   compose,
@@ -333,5 +334,84 @@ describe('the Step 6 rectangle survives the whole trip', () => {
 
     // And the exported file is still valid after a second round trip.
     expect(parse(toSvg(fromJson(toJson(reloaded))))).not.toBeNull();
+  });
+});
+
+describe('arcs', () => {
+  const arcEdits = (clockwise = true) =>
+    compose(
+      addPoint('c', 0, 0),
+      addPoint('s', 100, 0),
+      addPoint('e', 0, 100),
+      addArc('arc1', 'c', 's', 'e', 'layer1', clockwise),
+    );
+  const arcDoc = (clockwise = true): SketchDocument => arcEdits(clockwise)(createEmptyDocument());
+
+  it('a lone arc exports as a one-command path', () => {
+    const element = parse(toSvg(arcDoc())).querySelector('#arc1')!;
+
+    expect(element.nodeName).toBe('path');
+    expect(element.getAttribute('d')).toBe('M100 0A100 100 0 0 1 0 100');
+  });
+
+  it('flips the sweep flag with the direction', () => {
+    // The other way round is also the long way round here, so both flags move.
+    expect(parse(toSvg(arcDoc(false))).querySelector('#arc1')!.getAttribute('d')).toBe(
+      'M100 0A100 100 0 1 0 0 100',
+    );
+  });
+
+  it('joins an arc to a line inside one path', () => {
+    const doc = compose(
+      arcEdits(),
+      addPoint('far', 0, 300),
+      addLine('line1', 'e', 'far', 'layer1'),
+      startPath('path1', 'arc1'),
+      extendPath('path1', 'line1'),
+    )(createEmptyDocument());
+
+    expect(parse(toSvg(doc)).querySelector('#path1')!.getAttribute('d')).toBe(
+      'M100 0A100 100 0 0 1 0 100L0 300',
+    );
+  });
+
+  it('travels a reversed arc the other way, flipping its sweep', () => {
+    const doc = compose(
+      arcEdits(),
+      startPath('path1', 'arc1', true),
+    )(createEmptyDocument());
+
+    expect(parse(toSvg(doc)).querySelector('#path1')!.getAttribute('d')).toBe(
+      'M0 100A100 100 0 0 0 100 0',
+    );
+  });
+
+  it('draws a whole turn as two halves, since one A command cannot', () => {
+    // Endpoints dragged together: start and end coincide, so a single arc
+    // command would be a no-op and the arc would vanish.
+    const whole = compose(
+      addPoint('c', 0, 0),
+      addPoint('s', 100, 0),
+      addPoint('e', 100, 0),
+      addArc('arc1', 'c', 's', 'e', 'layer1'),
+    )(createEmptyDocument());
+    const d = parse(toSvg(whole)).querySelector('#arc1')!.getAttribute('d')!;
+
+    expect(d).toBe('M100 0A100 100 0 1 1 -100 0A100 100 0 1 1 100 0');
+  });
+
+  it('sizes the viewBox to the arc, not to its whole circle', () => {
+    expect(parse(toSvg(arcDoc())).getAttribute('viewBox')).toBe('0 0 100 100');
+  });
+
+  it('skips an arc whose radius has collapsed', () => {
+    const degenerate = compose(
+      addPoint('c', 0, 0),
+      addPoint('s', 0, 0),
+      addPoint('e', 0, 100),
+      addArc('arc1', 'c', 's', 'e', 'layer1'),
+    )(createEmptyDocument());
+
+    expect(parse(toSvg(degenerate)).querySelector('#arc1')).toBeNull();
   });
 });

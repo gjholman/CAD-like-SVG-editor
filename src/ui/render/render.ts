@@ -20,6 +20,7 @@
  * sketch ever feels slow, this is the place to add diffing.
  */
 import type { EntityStatus, SolveResult } from '../../core/solver';
+import { arcShape, type ArcShape } from '../../core/geometry';
 import type { Entity, Id, SketchDocument } from '../../core/model';
 import { arrowPath, dimensionGeometry, type DimensionGeometry } from './dimensions';
 import { viewTransform, type Point2, type Viewport } from './viewport';
@@ -34,10 +35,10 @@ export interface RenderOptions {
   /** Entities and points drawn with a selection halo. */
   readonly selection?: Iterable<Id>;
   /**
-   * The rubber line a drawing tool trails from its last click to the cursor.
-   * It is not in the document — nothing is committed until the click lands.
+   * What a drawing tool trails to the cursor. Not in the document — nothing is
+   * committed until the click lands.
    */
-  readonly preview?: { readonly from: Point2; readonly to: Point2 };
+  readonly preview?: Preview;
   /** Draw dimension annotations. On by default. */
   readonly showDimensions?: boolean;
   /**
@@ -47,6 +48,16 @@ export interface RenderOptions {
    */
   readonly result?: SolveResult;
 }
+
+export type Preview =
+  | { readonly kind: 'line'; readonly from: Point2; readonly to: Point2 }
+  | {
+      readonly kind: 'arc';
+      readonly centre: Point2;
+      readonly start: Point2;
+      readonly end: Point2;
+      readonly clockwise: boolean;
+    };
 
 export function render(root: Element, doc: SketchDocument, options: RenderOptions): void {
   const { viewport, result } = options;
@@ -131,8 +142,15 @@ function entityShape(
     });
   }
 
-  // Arcs are drawn in Step 9; until then they are simply not on the canvas.
-  if (entity.kind === 'arc') return undefined;
+  if (entity.kind === 'arc') {
+    const shape = arcShape(entity, positions);
+    if (shape === undefined) return undefined;
+    return element('path', {
+      class: shapeClass,
+      d: arcPathData(shape),
+      'vector-effect': 'non-scaling-stroke',
+    });
+  }
 
   const centre = positions[entity.center];
   if (centre === undefined) return undefined;
@@ -294,7 +312,43 @@ function dimensionParts(dimension: DimensionGeometry, viewport: Viewport): Eleme
   return parts;
 }
 
-function previewLine(preview: { from: Point2; to: Point2 }): Element {
+/**
+ * An arc as a `d` string.
+ *
+ * SVG cannot draw a whole circle with one `A` — start and end would coincide
+ * and the command becomes a no-op — so a full sweep is drawn as two halves.
+ */
+export function arcPathData(shape: ArcShape): string {
+  const { centre, start, end, radius, clockwise, sweep } = shape;
+  const sweepFlag = clockwise ? 1 : 0;
+  const r = trim(radius);
+
+  if (sweep >= Math.PI * 2 - 1e-9) {
+    const far = { x: 2 * centre.x - start.x, y: 2 * centre.y - start.y };
+    return (
+      `M${trim(start.x)} ${trim(start.y)}` +
+      `A${r} ${r} 0 1 ${sweepFlag} ${trim(far.x)} ${trim(far.y)}` +
+      `A${r} ${r} 0 1 ${sweepFlag} ${trim(start.x)} ${trim(start.y)}`
+    );
+  }
+
+  const largeArc = sweep > Math.PI ? 1 : 0;
+  return (
+    `M${trim(start.x)} ${trim(start.y)}` +
+    `A${r} ${r} 0 ${largeArc} ${sweepFlag} ${trim(end.x)} ${trim(end.y)}`
+  );
+}
+
+function previewLine(preview: Preview): Element {
+  if (preview.kind === 'arc') {
+    const shape = previewArcShape(preview);
+    return element('path', {
+      class: 'preview',
+      d: shape === undefined ? '' : arcPathData(shape),
+      'vector-effect': 'non-scaling-stroke',
+    });
+  }
+
   return element('line', {
     class: 'preview',
     x1: preview.from.x,
@@ -303,6 +357,14 @@ function previewLine(preview: { from: Point2; to: Point2 }): Element {
     y2: preview.to.y,
     'vector-effect': 'non-scaling-stroke',
   });
+}
+
+/** The preview arc is loose geometry, so its shape is built from raw points. */
+function previewArcShape(preview: Extract<Preview, { kind: 'arc' }>): ArcShape | undefined {
+  return arcShape(
+    { id: 'preview', kind: 'arc', center: 'c', start: 's', end: 'e', clockwise: preview.clockwise, layer: 'l', construction: false },
+    { c: preview.centre, s: preview.start, e: preview.end },
+  );
 }
 
 function element(name: string, attributes: Record<string, string | number>): Element {

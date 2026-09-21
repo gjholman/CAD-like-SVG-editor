@@ -34,6 +34,7 @@ const coords = document.querySelector('#coords');
 const HINTS: Record<ToolName, string> = {
   select: 'Click to select, shift-click to add. Drag a point to move it. Middle-drag to pan.',
   line: 'Click to place points. Click an existing point to join to it. Esc ends the chain.',
+  arc: 'Click the centre, then the start, then sweep round and click the end.',
 };
 
 const RELATION_NAMES: Record<string, string> = {

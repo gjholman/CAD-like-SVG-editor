@@ -3,8 +3,8 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Step 8 (arcs in
-the core) done, Step 9 (arcs in the UI and export) next.
+**Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Steps 8 and 9
+(arcs) done, Step 10 (the rest of the relation set) next.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -46,6 +46,7 @@ CAD-like-SVG-editor/
 │   ├── styles/
 │   │   └── landing.css
 │   ├── core/               pure logic, NO DOM
+│   │   ├── geometry.ts     bounds and arc maths shared by io and ui
 │   │   ├── model/          (Step 1) types + validate()
 │   │   ├── solver/         (Steps 3a/3b) linear algebra, constraints, solve()
 │   │   └── history/        (Step 2) dispatch, snapshots, undo/redo
@@ -62,6 +63,10 @@ ui  ->  io  ->  core
 ```
 
 `core` imports nothing from `io` or `ui`. `io` may use DOM APIs (`DOMParser`) for SVG import. `ui` uses the DOM freely.
+
+Geometry that both `io` and `ui` need (bounds, arc angles and sweeps) lives in
+`core/geometry.ts`. Putting it in `ui` and importing it from `io` inverts this
+rule, which is how it went wrong once already.
 
 This maps onto the two domains in the plan: `core/model` holds the **constraint domain** (points, entities, constraints) and the **output domain** (paths, styles, layers), linked only by IDs; the solver only ever sees the first.
 
@@ -484,12 +489,35 @@ Adding the entity kind made TypeScript name every place that assumed two kinds
 — hit testing, rendering, export. Each skips arcs explicitly until Step 9,
 rather than being widened early and left untested.
 
-### Step 9: Arcs in the UI and in export
+### Step 9: Arcs in the UI and in export — done
 
 - **Adds:** arc rendering; hit testing against the rim within the sweep; a
   centrepoint arc tool (centre, start, end); `A` commands in `<path d>` and a
   standalone arc export.
 - **Done when:** you can draw an arc, drag it, and export it as valid SVG.
+
+Arc geometry moved into `src/core/geometry.ts`, which also picked up a
+dependency-rule violation introduced in Step 7: `io/svg-export.ts` was
+importing `sketchBounds` from `ui/render/viewport`, inverting `ui -> io ->
+core`. Both layers now take the shared geometry from `core`, where it belongs.
+
+Settled while building it:
+
+- **The arc tool takes its direction from the sweep the cursor traced**, not
+  from where the last click lands. Accumulating the angle travelled is what
+  distinguishes a small arc from the large one the other way round, and it is
+  the only way to draw past half a turn with three clicks.
+- **The end point is placed on the arc's own circle**, at the cursor's angle,
+  so a new arc starts consistent instead of being pulled into shape by the
+  implicit constraint.
+- **Coincident endpoints read as a whole turn, not as nothing.** An arc whose
+  ends have been dragged together is still an arc; a zero sweep would make it
+  vanish. SVG cannot draw a whole turn in one `A` command, so it goes out as
+  two halves.
+- **Off its sweep, an arc is measured to its nearer endpoint**, so the missing
+  side of the circle is not clickable.
+- **A reversed path member travels the arc the other way**, which flips the
+  sweep flag as well as the endpoints.
 
 ### Step 10: The rest of the relation set
 

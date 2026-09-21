@@ -384,3 +384,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 7 (native JSON save/load and SVG export) built, completing Phase 1. The editor is now the app at `/`, with the landing page at `/about.html`.
 - 2026-09-21: Phase 2 broken into Steps 8-13; decided arcs are stored as three shared points plus a direction flag rather than centre/radius/angles, so endpoints can be shared with other geometry.
 - 2026-09-21: Step 8 (arcs in the core) built: the arc entity, its implicit equal-radius constraint, point-on an arc, and DOF and per-entity status. An arc reports 5 DOF and shares endpoints with lines without a coincident constraint.
+- 2026-09-21: Step 9 (arcs in the UI and export) built: arc rendering, rim hit testing within the sweep, a centrepoint arc tool that takes its direction from the traced sweep, and `A` commands on export. Shared geometry moved to `core/geometry.ts`, restoring the `ui -> io -> core` dependency rule.

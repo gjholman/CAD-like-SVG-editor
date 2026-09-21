@@ -1,4 +1,16 @@
-export { render, type RenderOptions } from './render';
+export {
+  angleOf,
+  arcContainsAngle,
+  arcPoint,
+  arcShape,
+  normalizeAngle,
+  sketchBounds,
+  sweepAngle,
+  type ArcShape,
+  type Bounds,
+  type Point2,
+} from '../../core/geometry';
+export { arcPathData, render, type Preview, type RenderOptions } from './render';
 export {
   arrowPath,
   dimensionGeometry,
@@ -14,12 +26,9 @@ export {
   fitTo,
   panBy,
   screenToWorld,
-  sketchBounds,
   viewTransform,
   worldToScreen,
   zoomAt,
-  type Bounds,
-  type Point2,
   type Size,
   type Viewport,
 } from './viewport';

@@ -16,6 +16,7 @@
  * mockup's relation buttons and its "select first" shortcuts work.
  */
 import {
+  addArc,
   addLine,
   addPoint,
   closePath,
@@ -41,13 +42,17 @@ import {
 import { applySolution, solve, type SolveResult } from '../../core/solver';
 import {
   IDENTITY_VIEWPORT,
+  angleOf,
+  arcPoint,
   fitTo,
+  normalizeAngle,
   panBy,
   render,
   screenToWorld,
   sketchBounds,
   zoomAt,
   type Point2,
+  type Preview,
   type Viewport,
 } from '../render';
 import {
@@ -62,7 +67,7 @@ import {
 } from './commands';
 import { hitTest, type Hit } from './hit-test';
 
-export type ToolName = 'select' | 'line';
+export type ToolName = 'select' | 'line' | 'arc';
 
 /** Shift-plus-letter applies a relation to the selection, as in the mockup. */
 const RELATION_KEYS: Readonly<Record<string, RelationKind>> = {
@@ -156,14 +161,51 @@ export function createEditor(options: EditorOptions): Editor {
   let chainPath: Id | undefined;
   /** Where the chain began, so clicking back on it closes the loop. */
   let chainStart: Id | undefined;
+
+  /**
+   * The arc tool in progress: centre, then start, then the swept angle the
+   * cursor has traced. Direction comes from that sweep rather than from where
+   * the last click lands, which is what lets an arc run past half a turn.
+   */
+  let arcCentre: Id | undefined;
+  let arcStart: Id | undefined;
+  let arcSweep = 0;
+  let arcLastAngle: number | undefined;
   let cursor: Point2 | undefined;
   let gestureCounter = 0;
 
+  /** What the active tool is trailing to the cursor, if anything. */
+  function previewFor(): Preview | undefined {
+    if (cursor === undefined) return undefined;
+
+    if (tool === 'line' && chainPoint !== undefined) {
+      const from = pointAt(chainPoint);
+      return from === undefined ? undefined : { kind: 'line', from, to: cursor };
+    }
+
+    if (tool === 'arc' && arcCentre !== undefined) {
+      const centre = pointAt(arcCentre);
+      if (centre === undefined) return undefined;
+      const start = pointAt(arcStart);
+      // Before the start point is placed, the radius itself is what is being
+      // chosen, so show it as a line from the centre.
+      if (start === undefined) return { kind: 'line', from: centre, to: cursor };
+
+      const radius = Math.hypot(start.x - centre.x, start.y - centre.y);
+      return {
+        kind: 'arc',
+        centre,
+        start,
+        end: arcPoint(centre, radius, angleOf(centre, cursor)),
+        clockwise: arcSweep > 0,
+      };
+    }
+
+    return undefined;
+  }
+
   function draw(): void {
-    const preview =
-      tool === 'line' && chainPoint !== undefined && cursor !== undefined
-        ? { from: result.positions[chainPoint] ?? current(history).points[chainPoint]!, to: cursor }
-        : undefined;
+    const preview = previewFor();
     render(root, current(history), { viewport, result, selection, preview });
   }
 
@@ -250,6 +292,11 @@ export function createEditor(options: EditorOptions): Editor {
       return;
     }
 
+    if (tool === 'arc') {
+      placeArcPoint(at);
+      return;
+    }
+
     const additive = mouse.shiftKey;
     const hit = pick(at);
 
@@ -301,6 +348,10 @@ export function createEditor(options: EditorOptions): Editor {
     }
 
     if (tool === 'line' && chainPoint !== undefined) draw();
+    if (tool === 'arc' && arcCentre !== undefined) {
+      if (arcStart !== undefined) trackArcSweep(at);
+      draw();
+    }
   }
 
   function onPointerUp(event: Event): void {
@@ -377,7 +428,89 @@ export function createEditor(options: EditorOptions): Editor {
     return current.includes(id) ? current.filter((existing) => existing !== id) : [...current, id];
   }
 
+  /**
+   * Follows the cursor round, accumulating the angle travelled rather than
+   * taking the angle to the current position. Accumulating is what
+   * distinguishes a small arc from the large one going the other way.
+   */
+  function trackArcSweep(at: Point2): void {
+    const centre = pointAt(arcCentre);
+    if (centre === undefined) return;
+    const angle = angleOf(centre, at);
+    if (arcLastAngle !== undefined) {
+      // The shortest step from the previous angle, signed.
+      let delta = normalizeAngle(angle - arcLastAngle);
+      if (delta > Math.PI) delta -= Math.PI * 2;
+      arcSweep += delta;
+    }
+    arcLastAngle = angle;
+  }
+
+  function pointAt(id: Id | undefined): Point2 | undefined {
+    if (id === undefined) return undefined;
+    return result.positions[id] ?? current(history).points[id];
+  }
+
+  /** Centre, then start, then end. */
+  function placeArcPoint(at: Point2): void {
+    const doc = current(history);
+    const hit = pick(at);
+    const existing = hit?.kind === 'point' ? hit.id : undefined;
+
+    if (arcCentre === undefined) {
+      const id = existing ?? nextId('p');
+      if (existing === undefined) apply(addPoint(id, at.x, at.y), 'Arc centre');
+      arcCentre = id;
+      draw();
+      return;
+    }
+
+    if (arcStart === undefined) {
+      if (existing === arcCentre) return; // a zero radius is not an arc
+      const id = existing ?? nextId('p');
+      if (existing === undefined) apply(addPoint(id, at.x, at.y), 'Arc start');
+      arcStart = id;
+      arcSweep = 0;
+      arcLastAngle = pointAt(arcCentre) === undefined ? undefined : angleOf(pointAt(arcCentre)!, at);
+      draw();
+      return;
+    }
+
+    const centre = pointAt(arcCentre);
+    const start = pointAt(arcStart);
+    const layer = doc.layerOrder[0];
+    if (centre === undefined || start === undefined || layer === undefined) return;
+    if (Math.abs(arcSweep) < 1e-6) return; // no sweep yet, so no arc
+
+    trackArcSweep(at);
+    const radius = Math.hypot(start.x - centre.x, start.y - centre.y);
+    // The end point sits on the arc's own circle, so the sketch starts
+    // consistent rather than being pulled straight by the implicit constraint.
+    const endAt = arcPoint(centre, radius, angleOf(centre, at));
+
+    const endId = existing !== undefined && existing !== arcStart ? existing : nextId('p');
+    const arcId = nextId('arc');
+
+    apply(
+      compose(
+        ...(endId === existing ? [] : [addPoint(endId, endAt.x, endAt.y)]),
+        addArc(arcId, arcCentre, arcStart, endId, layer, arcSweep > 0),
+      ),
+      'Draw arc',
+    );
+
+    endArc();
+  }
+
+  function endArc(): void {
+    arcCentre = undefined;
+    arcStart = undefined;
+    arcSweep = 0;
+    arcLastAngle = undefined;
+  }
+
   function endChain(): void {
+    endArc();
     if (chainPoint === undefined) return;
     chainPoint = undefined;
     chainPath = undefined;
@@ -437,6 +570,10 @@ export function createEditor(options: EditorOptions): Editor {
       case 'l':
       case 'L':
         editor.setTool('line');
+        break;
+      case 'a':
+      case 'A':
+        editor.setTool('arc');
         break;
       default:
         break;

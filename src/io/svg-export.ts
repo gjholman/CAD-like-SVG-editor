@@ -14,7 +14,7 @@
  * geometry omitted, layers as `<g>`, a one-member circle path exported as
  * `<circle>`, and export tolerating gaps where geometry has been pulled apart.
  */
-import { sketchBounds, type Bounds, type Point2 } from '../ui/render/viewport';
+import { arcShape, sketchBounds, type ArcShape, type Bounds, type Point2 } from '../core/geometry';
 import type { Entity, Id, PathRecord, SketchDocument, StyleBag } from '../core/model';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -186,8 +186,21 @@ export function pathData(
       const entity = doc.entities[member.entity];
       if (entity === undefined) continue;
 
-      // Arcs export in Step 9, with their `A` commands.
-      if (entity.kind === 'arc') continue;
+      if (entity.kind === 'arc') {
+        const shape = arcShape(entity, positions);
+        if (shape === undefined) continue;
+        // Walking a member backwards travels the same arc the other way round,
+        // which flips the sweep flag as well as the endpoints.
+        const travel = member.reversed ? reverseArc(shape) : shape;
+
+        if (cursor === undefined || !same(cursor, travel.start)) {
+          parts.push(`M${number(travel.start.x)} ${number(travel.start.y)}`);
+          runStart = travel.start;
+        }
+        parts.push(arcSegment(travel));
+        cursor = travel.end;
+        continue;
+      }
 
       if (entity.kind === 'circle') {
         // A circle cannot continue a chain, so it becomes its own closed run.
@@ -224,6 +237,41 @@ export function pathData(
   return parts.join('');
 }
 
+/**
+ * One `A` command to the arc's end point.
+ *
+ * A whole turn cannot be one command — start and end would coincide and SVG
+ * would draw nothing — so it goes out as two halves.
+ */
+function arcSegment(shape: ArcShape): string {
+  const { start, end, centre, radius, clockwise, sweep } = shape;
+  const sweepFlag = clockwise ? 1 : 0;
+  const r = number(radius);
+
+  if (sweep >= Math.PI * 2 - 1e-9) {
+    const far = { x: 2 * centre.x - start.x, y: 2 * centre.y - start.y };
+    return (
+      `A${r} ${r} 0 1 ${sweepFlag} ${number(far.x)} ${number(far.y)}` +
+      `A${r} ${r} 0 1 ${sweepFlag} ${number(start.x)} ${number(start.y)}`
+    );
+  }
+
+  const largeArc = sweep > Math.PI ? 1 : 0;
+  return `A${r} ${r} 0 ${largeArc} ${sweepFlag} ${number(end.x)} ${number(end.y)}`;
+}
+
+/** The same arc travelled the other way: ends swapped, direction flipped. */
+function reverseArc(shape: ArcShape): ArcShape {
+  return {
+    ...shape,
+    start: shape.end,
+    end: shape.start,
+    startAngle: shape.endAngle,
+    endAngle: shape.startAngle,
+    clockwise: !shape.clockwise,
+  };
+}
+
 /** Two half-arcs, the usual way to draw a full circle in a path. */
 function circleData(centre: Point2, radius: number): string {
   const left = centre.x - radius;
@@ -241,7 +289,16 @@ function looseElement(
   radii: Readonly<Record<Id, number>>,
   style: StyleBag,
 ): string | undefined {
-  if (entity.kind === 'arc') return undefined; // Step 9
+  if (entity.kind === 'arc') {
+    const shape = arcShape(entity, positions);
+    if (shape === undefined) return undefined;
+    // SVG has no arc element, so a lone arc is still a one-command path.
+    return `<path ${formatAttributes({
+      id: entity.id,
+      d: `M${number(shape.start.x)} ${number(shape.start.y)}${arcSegment(shape)}`,
+      ...style,
+    })}/>`;
+  }
   if (entity.kind === 'circle') return circleElement(entity, positions, radii, style, entity.id);
 
   const a = positions[entity.p1];

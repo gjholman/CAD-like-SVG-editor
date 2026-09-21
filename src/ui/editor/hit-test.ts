@@ -6,8 +6,8 @@
  * existing point is how shared geometry (and so implicit coincidence) gets
  * built.
  */
+import { arcContainsAngle, angleOf, arcShape, type Point2 } from '../../core/geometry';
 import type { Id, SketchDocument } from '../../core/model';
-import type { Point2 } from '../render';
 
 export type Hit =
   | { readonly kind: 'point'; readonly id: Id; readonly distance: number }
@@ -59,9 +59,11 @@ export function hitTestEntity(input: HitTestInput): Hit | undefined {
     if (layer === undefined || !layer.visible) continue;
 
     let distance: number | undefined;
-    // Arcs become pickable in Step 9, along with their rendering.
-    if (entity.kind === 'arc') continue;
-    if (entity.kind === 'line') {
+    if (entity.kind === 'arc') {
+      const shape = arcShape(entity, positions);
+      if (shape === undefined) continue;
+      distance = distanceToArc(at, shape);
+    } else if (entity.kind === 'line') {
       const a = positions[entity.p1] ?? doc.points[entity.p1];
       const b = positions[entity.p2] ?? doc.points[entity.p2];
       if (a === undefined || b === undefined) continue;
@@ -81,6 +83,27 @@ export function hitTestEntity(input: HitTestInput): Hit | undefined {
   }
 
   return best;
+}
+
+/**
+ * Distance to the drawn part of an arc.
+ *
+ * Off the swept part, the nearest point on the arc is whichever end it is, so
+ * the missing side of the circle is not clickable — picking there would select
+ * geometry that is not under the cursor.
+ */
+export function distanceToArc(
+  p: Point2,
+  shape: { centre: Point2; start: Point2; end: Point2; radius: number; clockwise: boolean; startAngle: number; endAngle: number },
+): number {
+  const angle = angleOf(shape.centre, p);
+  if (arcContainsAngle(shape.startAngle, shape.endAngle, shape.clockwise, angle)) {
+    return Math.abs(Math.hypot(p.x - shape.centre.x, p.y - shape.centre.y) - shape.radius);
+  }
+  return Math.min(
+    Math.hypot(p.x - shape.start.x, p.y - shape.start.y),
+    Math.hypot(p.x - shape.end.x, p.y - shape.end.y),
+  );
 }
 
 /** Perpendicular distance to a segment, clamped to its ends. */

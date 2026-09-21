@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
+import { sketchBounds } from '../../core/geometry';
 import {
   IDENTITY_VIEWPORT,
   MAX_SCALE,
@@ -8,7 +9,6 @@ import {
   fitTo,
   panBy,
   screenToWorld,
-  sketchBounds,
   viewTransform,
   worldToScreen,
   zoomAt,
