@@ -1,0 +1,15 @@
+export {
+  at,
+  createMatrix,
+  decomposeQr,
+  matrixFromRows,
+  multiplyVector,
+  nullspace,
+  rank,
+  setAt,
+  solveLeastSquares,
+  toRows,
+  type LeastSquaresResult,
+  type Matrix,
+  type QrDecomposition,
+} from './linalg';
