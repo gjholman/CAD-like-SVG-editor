@@ -3,9 +3,8 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Phase 1 complete (Steps 0-7). The editor is the app at `/`; the
-landing page moved to `/about.html`. Next: Phase 2 in the plan (arcs, the full
-relation set, inference while drawing).
+**Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Step 8 (arcs in
+the core) next.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -424,11 +423,85 @@ into it. The editor chrome is still deliberately plain — the designed chrome i
 `docs/mockups/ui-mockup-v1.html` (tool rail, panel stack, rulers) is built out
 as the features behind it land.
 
-**After Step 7:** Phase 1 is complete. Continue with Phase 2 in the plan (arcs, more relations, inference while drawing).
+**After Step 7:** Phase 1 is complete.
 
 ---
 
-## 6. Still open (not blocking Steps 1 to 3)
+## 6. Phase 2 steps
+
+Same working agreements: core before UI, every step green and committed.
+
+### How an arc is represented (decided here, before Step 8)
+
+The plan's DOF table gives an arc 5 DOF as centre (2) + radius + start angle +
+end angle. Stored that way, though, an arc's **endpoints are derived values**,
+so a line could never share a point with an arc — and shared points are how
+this model keeps topology explicit (a Phase 1 decision that the line tool
+already relies on).
+
+So an arc is stored as **three points — centre, start, end — plus a direction
+flag**, and the solver adds one implicit constraint per arc: the two endpoints
+are equidistant from the centre. The arithmetic lands in the same place:
+
+```
+3 points                     6 variables
+implicit equal-radius        -1
+                            ----
+                              5 DOF, as the plan says
+```
+
+Radius is derived (`|start - centre|`), endpoints are ordinary points that
+lines and other arcs can share, and every existing relation works on them
+unchanged. The direction flag is not a variable; it says which of the two ways
+round the arc sweeps, and maps to SVG's sweep flag on export.
+
+### Step 8: Arcs in the core
+
+- **Adds:** `Arc` entity (centre, start, end, direction); `validate` coverage;
+  the implicit equal-radius constraint in the solver; arc variables in the DOF
+  and per-entity status; `point-on` an arc.
+- **Tests:** an arc alone reports 5 DOF; fixing its centre and both endpoints
+  fully defines it; the implicit constraint is not reportable as a user
+  conflict; a line sharing an endpoint with an arc solves as one sketch.
+- **Done when:** a hand-built arc solves, and its DOF count matches the plan.
+
+### Step 9: Arcs in the UI and in export
+
+- **Adds:** arc rendering; hit testing against the rim within the sweep; a
+  centrepoint arc tool (centre, start, end); `A` commands in `<path d>` and a
+  standalone arc export.
+- **Done when:** you can draw an arc, drag it, and export it as valid SVG.
+
+### Step 10: The rest of the relation set
+
+- **Adds:** parallel, perpendicular, tangent, equal, collinear, concentric,
+  midpoint, symmetric, each with an analytic Jacobian checked against finite
+  differences; selection rules and buttons for each.
+- **Done when:** a slot (two lines, two tangent arcs) can be fully defined.
+
+### Step 11: Angle, radius and diameter dimensions
+
+- **Adds:** those three dimension kinds, their annotations, and reference
+  (non-driving) dimensions.
+- **Done when:** an angled line can be dimensioned and driven by its angle.
+
+### Step 12: Inference while drawing
+
+- **Adds:** relation inference as you draw (horizontal, vertical, coincident,
+  tangent) with on-canvas hints, applied on commit and reviewable.
+- **Done when:** drawing a roughly horizontal line picks up a horizontal
+  relation, and the hint is visible before the click lands.
+
+### Step 13: Relations panel
+
+- **Adds:** delete and suspend from the panel, selecting a relation highlights
+  what it acts on, and the cross-layer suspend affordance the plan left open.
+- **Done when:** a relation can be found, understood, suspended and deleted
+  without touching the canvas.
+
+---
+
+## 7. Still open (not blocking Steps 1 to 3)
 
 - Cross-layer suspend: the UI affordance (modifier key, button, or context menu).
 - Import fidelity leftovers: rounded rects, CSS class resolution, merge tolerance, whether inference defaults on, embedding native JSON in exports.

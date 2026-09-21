@@ -363,6 +363,7 @@ Mitigating B's sync risk:
 - **A subpath exports closed only when the walk returned to where its current run started.** `Z` closes to the last `M`, so closing a path with a gap in it would draw an edge the sketch does not have.
 - **Loading a native file validates before returning it**, failing with a message that names the problem. Files from a newer version are refused rather than half-read.
 - **Hidden layers export hidden** rather than being dropped, so a round trip loses nothing.
+- **Arcs are stored as three points** (centre, start, end) plus a direction flag, not as centre/radius/angles. Radius is derived, endpoints are ordinary points that lines and arcs can share, and the solver adds one implicit constraint per arc (the endpoints are equidistant from the centre) so the DOF still come to 5, as the DOF table says.
 
 ---
 
@@ -381,3 +382,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 5 (editing v0) built: document edit helpers, hit testing, select and line tools, drag-to-solve, undo/redo on the keyboard, and an editing sandbox at sketch.html. Driven end to end in a real browser.
 - 2026-09-21: Step 6 (constraints and dimensions UI) built: multi-selection, relation commands with the mockup's shortcuts, smart dimensions drawn on the canvas, and an editable relations panel. The plan's rectangle can now be drawn by hand and watched go blue to black. Phase 1 has one step left.
 - 2026-09-21: Step 7 (native JSON save/load and SVG export) built, completing Phase 1. The editor is now the app at `/`, with the landing page at `/about.html`.
+- 2026-09-21: Phase 2 broken into Steps 8-13; decided arcs are stored as three shared points plus a direction flag rather than centre/radius/angles, so endpoints can be shared with other geometry.
