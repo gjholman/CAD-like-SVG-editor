@@ -299,3 +299,54 @@ describe('drawing the plan\'s rectangle by hand', () => {
     expect(stage.querySelectorAll('.is-over').length).toBeGreaterThan(0);
   });
 });
+
+describe('closing a shape', () => {
+  it('marks the path closed when the chain returns to its start', () => {
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(300, 0);
+    click(300, 200);
+    click(0, 0); // back onto the first point
+
+    const path = Object.values(editor.getDocument().paths)[0]!;
+    expect(path.subpaths[0]!.closed).toBe(true);
+    expect(path.subpaths[0]!.members).toHaveLength(3);
+    expect(validate(editor.getDocument())).toEqual([]);
+  });
+
+  it('ends the chain once the shape is closed', () => {
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(300, 0);
+    click(0, 0);
+    pointer('pointermove', 150, 150);
+
+    expect(stage.querySelector('.preview')).toBeNull();
+  });
+
+  it('leaves an open chain open', () => {
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(300, 0);
+    click(300, 200);
+    key('Escape');
+
+    expect(Object.values(editor.getDocument().paths)[0]!.subpaths[0]!.closed).toBe(false);
+  });
+
+  it('starts a fresh chain after closing, not a second loop on the same path', () => {
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(300, 0);
+    click(0, 0);
+    click(500, 500);
+    click(600, 500);
+    key('Escape');
+
+    expect(Object.keys(editor.getDocument().paths)).toHaveLength(2);
+  });
+});

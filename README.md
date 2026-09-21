@@ -20,9 +20,18 @@ npm run build      # typecheck + production build into dist/
 ## Layout
 
 ```
+index.html  the editor
+about.html  landing page
 src/core/   pure logic (model, solver, history): no DOM
-src/io/     native JSON, SVG import/export
+src/io/     native JSON save/load, SVG export
 src/ui/     rendering, tools, panels
 tests/      integration tests and fixtures
 docs/       plan and execution docs
 ```
+
+## Using it
+
+`npm run dev` opens the editor. Draw with the line tool, clicking back on the
+first point to close a shape. Switch to select, shift-click two points, and add
+a relation or a dimension; the status bar counts the degrees of freedom left.
+Geometry is blue while it can still move and black once it is pinned down.

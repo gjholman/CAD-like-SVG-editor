@@ -359,6 +359,10 @@ Mitigating B's sync risk:
 - **Duplicate relations are refused** at the command layer rather than left to the solver to report as redundancy.
 - **Smart dimension** picks the axis the two points are most separated along, falling back to a straight-line distance on a diagonal.
 - **Dimension placement is derived**, not stored: annotations sit on the far side of the drawing from its centre, and repeats stack. A user-chosen offset needs a schema field and waits for the dimension-placement work.
+- **SVG export builds strings, not DOM**, so it runs anywhere; tests parse the output with a real parser to check it is genuinely valid SVG.
+- **A subpath exports closed only when the walk returned to where its current run started.** `Z` closes to the last `M`, so closing a path with a gap in it would draw an edge the sketch does not have.
+- **Loading a native file validates before returning it**, failing with a message that names the problem. Files from a newer version are refused rather than half-read.
+- **Hidden layers export hidden** rather than being dropped, so a round trip loses nothing.
 
 ---
 
@@ -376,3 +380,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 4 (read-only renderer) built: layers as groups, entities as elements, status colours from the solver, pan and zoom. Colours verified in a real browser, not only in jsdom.
 - 2026-09-21: Step 5 (editing v0) built: document edit helpers, hit testing, select and line tools, drag-to-solve, undo/redo on the keyboard, and an editing sandbox at sketch.html. Driven end to end in a real browser.
 - 2026-09-21: Step 6 (constraints and dimensions UI) built: multi-selection, relation commands with the mockup's shortcuts, smart dimensions drawn on the canvas, and an editable relations panel. The plan's rectangle can now be drawn by hand and watched go blue to black. Phase 1 has one step left.
+- 2026-09-21: Step 7 (native JSON save/load and SVG export) built, completing Phase 1. The editor is now the app at `/`, with the landing page at `/about.html`.

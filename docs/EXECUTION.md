@@ -3,8 +3,9 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 6 (constraints and dimensions UI) delivered. Next: Step 7
-(save/load and SVG export), which completes Phase 1.
+**Status:** Phase 1 complete (Steps 0-7). The editor is the app at `/`; the
+landing page moved to `/about.html`. Next: Phase 2 in the plan (arcs, the full
+relation set, inference while drawing).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -31,8 +32,8 @@ Steps 4 to 6 work from it.
 
 ```
 CAD-like-SVG-editor/
-├── index.html              landing page (Vite entry point)
-├── sketch.html             editing sandbox that mounts the editor
+├── index.html              the editor (Vite entry point)
+├── about.html              landing page, links into the editor
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts          Vite + Vitest config
@@ -41,14 +42,15 @@ CAD-like-SVG-editor/
 │   ├── svg-cad-plan.md     the plan and decisions
 │   └── EXECUTION.md        this file
 ├── src/
-│   ├── main.ts             entry: loads landing styles now, mounts the editor later
+│   ├── main.ts             entry: mounts the editor
+│   ├── landing.ts          entry for the landing page
 │   ├── styles/
 │   │   └── landing.css
 │   ├── core/               pure logic, NO DOM
 │   │   ├── model/          (Step 1) types + validate()
 │   │   ├── solver/         (Steps 3a/3b) linear algebra, constraints, solve()
 │   │   └── history/        (Step 2) dispatch, snapshots, undo/redo
-│   ├── io/                 (Step 7) native JSON, SVG import/export
+│   ├── io/                 native JSON save/load, SVG export (import in Phase 4)
 │   └── ui/                 (Steps 4-6) rendering, tools, panels, shortcuts
 └── tests/
     └── fixtures/           sample SVGs and sketch JSON for tests
@@ -381,11 +383,46 @@ Settled while building it:
   drawing from its centre and repeats are stacked. Dragging a dimension into
   place needs a schema field and belongs with that work.
 
-### Step 7: Save/load and export
+### Step 7: Save/load and export — done
 
 - **Adds:** `io/` native JSON save and load (with a version field); SVG export that rebuilds `<path d>` from path records.
 - **Tests:** JSON round-trip equality; exported SVG parses and has the expected geometry.
 - **Done when:** the Step 6 rectangle survives save, reload, and export to a valid SVG.
+
+Delivered as `src/io/json.ts` and `src/io/svg-export.ts`, with Save, Open and
+Export SVG wired into the app.
+
+Settled while building it:
+
+- **Export builds strings, not DOM.** It runs anywhere and needs no jsdom. The
+  tests still parse the result with a real `DOMParser`, because producing
+  something that merely looks like SVG is the easy mistake.
+- **A closed subpath is only closed when the pen came back to where the run
+  started.** `Z` closes to the last `M`, so a path with a gap in it would
+  otherwise draw an edge the sketch does not have. A test caught this.
+- **The line tool closes the loop**, as the plan says it should: clicking back
+  on the point a chain began from marks the path closed and ends the chain.
+  Until this landed, drawing a rectangle exported an open path.
+- **Geometry in no path is still exported.** Drawing a loose line and exporting
+  must not silently lose it.
+- **Loading validates before returning.** A file from a newer build, or one
+  hand-edited into an inconsistent state, fails at the door with a message
+  naming the problem rather than three steps later inside the solver.
+- **Hidden layers export hidden** (`display:none`) rather than being dropped,
+  so nothing is lost on a round trip.
+- **Inkscape layer attributes are opt-in** (`inkscapeLayers`), and the app
+  turns them on, so exports open as layers there.
+
+Still open from the plan, and deliberately not built here: embedding the native
+JSON in `<metadata>` for a constrained round trip. That decision is still
+listed as open, and it pairs with SVG *import* in Phase 4.
+
+### The app
+
+`index.html` is the editor and `/about.html` is the landing page, which links
+into it. The editor chrome is still deliberately plain — the designed chrome in
+`docs/mockups/ui-mockup-v1.html` (tool rail, panel stack, rulers) is built out
+as the features behind it land.
 
 **After Step 7:** Phase 1 is complete. Continue with Phase 2 in the plan (arcs, more relations, inference while drawing).
 

@@ -18,6 +18,7 @@
 import {
   addLine,
   addPoint,
+  closePath,
   compose,
   createEmptyDocument,
   createIdGenerator,
@@ -115,6 +116,11 @@ export interface Editor {
   canUndo(): boolean;
   canRedo(): boolean;
   zoomToFit(): void;
+  /**
+   * Replaces the document, as opening a file does. History starts fresh: the
+   * steps that built the previous sketch mean nothing in this one.
+   */
+  load(doc: SketchDocument): void;
   /** Redraws from current state; every mutation already calls it. */
   refresh(): void;
   destroy(): void;
@@ -148,6 +154,8 @@ export function createEditor(options: EditorOptions): Editor {
   /** The line tool's chain: where the next segment starts, and its path. */
   let chainPoint: Id | undefined;
   let chainPath: Id | undefined;
+  /** Where the chain began, so clicking back on it closes the loop. */
+  let chainStart: Id | undefined;
   let cursor: Point2 | undefined;
   let gestureCounter = 0;
 
@@ -318,6 +326,7 @@ export function createEditor(options: EditorOptions): Editor {
     if (chainPoint === undefined) {
       if (createPoint !== undefined) apply(createPoint, 'Start line');
       chainPoint = pointId;
+      chainStart = pointId;
       chainPath = undefined;
       draw();
       return;
@@ -332,15 +341,24 @@ export function createEditor(options: EditorOptions): Editor {
     const from = chainPoint;
     const continuing = chainPath;
     const pathId = continuing ?? nextId('path');
+    // Clicking back on the point the chain started from closes the loop, which
+    // is what makes the export a closed `<path d>` with a trailing Z.
+    const closes = pointId === chainStart;
 
     apply(
       compose(
         ...(createPoint === undefined ? [] : [createPoint]),
         addLine(lineId, from, pointId, layer),
         continuing === undefined ? startPath(pathId, lineId) : extendPath(pathId, lineId),
+        ...(closes ? [closePath(pathId)] : []),
       ),
-      'Draw line',
+      closes ? 'Close shape' : 'Draw line',
     );
+
+    if (closes) {
+      endChain();
+      return;
+    }
 
     chainPoint = pointId;
     chainPath = pathId;
@@ -363,6 +381,7 @@ export function createEditor(options: EditorOptions): Editor {
     if (chainPoint === undefined) return;
     chainPoint = undefined;
     chainPath = undefined;
+    chainStart = undefined;
     draw();
   }
 
@@ -480,6 +499,13 @@ export function createEditor(options: EditorOptions): Editor {
     },
     canUndo: () => canUndo(history),
     canRedo: () => canRedo(history),
+    load(doc) {
+      history = createHistory(doc);
+      endChain();
+      selection = [];
+      result = solve(doc);
+      draw();
+    },
     zoomToFit() {
       const bounds = sketchBounds(current(history), result.positions, result.radii);
       if (bounds === undefined) return;

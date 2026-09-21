@@ -405,3 +405,10 @@ figure {
     animation: none;
   }
 }
+
+/* Way into the editor from the landing page. */
+.status-link {
+  color: var(--under, #2f6fde);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}

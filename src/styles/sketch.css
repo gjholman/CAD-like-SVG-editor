@@ -48,18 +48,27 @@ body {
   align-items: center;
   gap: 14px;
   padding: 0 12px;
-  height: 40px;
-  flex-wrap: nowrap;
-  /* The bar must never be what makes the page wider than the screen. */
+  /* Wraps to a second row rather than clipping: a clipped toolbar hides
+     controls, and scrolling one sideways hides them somewhere worse. */
+  flex-wrap: wrap;
+  min-height: 40px;
+  padding-block: 4px;
   min-width: 0;
-  overflow: hidden;
   background: var(--c1);
   border-bottom: 1px solid var(--line);
 }
 
-.bar.status { border-bottom: 0; border-top: 1px solid var(--line); font-size: 12px; }
+.bar.status { flex-wrap: nowrap; border-bottom: 0; border-top: 1px solid var(--line); font-size: 12px; }
 
-.brand { flex: 0 0 auto; font-weight: 600; letter-spacing: 0.02em; }
+.brand {
+  flex: 0 0 auto;
+  color: inherit;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+.brand:hover { text-decoration: underline; }
 
 .group { display: flex; flex: 0 0 auto; gap: 4px; }
 
@@ -93,13 +102,11 @@ kbd {
 }
 
 .hint {
-  margin: 0 0 0 auto;
-  /* Absorbs the leftover space and gives it back first when room is short. */
+  /* Lives in the status bar, where it absorbs the spare room and truncates
+     first when there is none. */
   flex: 1 1 0;
   min-width: 0;
   color: var(--dim);
-  font-size: 12px;
-  /* The bar must never wrap to two rows; the hint gives way first. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -110,7 +117,7 @@ kbd {
 /* The canvas fills its cell; the artboard is the whole surface for now. */
 #stage { position: absolute; inset: 0; }
 
-.spacer { margin-left: auto; }
+.spacer { flex: 0 0 auto; margin-left: auto; }
 
 .dotc { width: 8px; height: 8px; border-radius: 50%; background: var(--full-ui); }
 .dotc.under { background: var(--under-ui); }
@@ -118,7 +125,7 @@ kbd {
 .dotc.unsolved { background: #f5c542; }
 .dotc.empty { background: transparent; border: 1px solid #626d77; }
 
-#coords { color: var(--dim); font-variant-numeric: tabular-nums; }
+#coords { flex: 0 0 auto; color: var(--dim); font-variant-numeric: tabular-nums; }
 
 /* Relations panel --------------------------------------------------------- */
 .panel {
@@ -175,3 +182,54 @@ kbd {
 
 .relation .acts { display: flex; gap: 2px; }
 .relation .acts button { height: 22px; padding: 0 6px; font-size: 11px; }
+
+/* Save / export dialog ----------------------------------------------------
+   Downloads are blocked in some embedded viewers, so the text is always on
+   screen to copy. The download button is the convenience, not the only way
+   out. */
+dialog#output {
+  width: min(760px, 92vw);
+  max-height: 84vh;
+  padding: 0;
+  background: var(--c1);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+dialog#output::backdrop { background: rgb(0 0 0 / 0.5); }
+
+.output-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.output-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.output-head button { margin-left: auto; border-color: #55606a; }
+
+.output-note { margin: 10px 12px 0; color: var(--dim); font-size: 12px; }
+
+#output-text {
+  display: block;
+  width: calc(100% - 24px);
+  height: 46vh;
+  margin: 10px 12px;
+  padding: 8px;
+  background: var(--c0);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
+.output-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+.output-actions button { border-color: #55606a; }

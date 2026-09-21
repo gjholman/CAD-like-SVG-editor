@@ -7,9 +7,9 @@ export default defineConfig({
       // Paths are relative to the Vite root, which avoids needing node types
       // here just to call resolve().
       input: {
-        // The landing page, and the editing sandbox that mounts the editor.
+        // The editor itself, and the landing page it links back to.
         index: 'index.html',
-        sketch: 'sketch.html',
+        about: 'about.html',
       },
     },
   },
