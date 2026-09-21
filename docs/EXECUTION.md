@@ -3,7 +3,7 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 1 (document model) delivered. Next: Step 2 (history).
+**Status:** Step 2 (history) delivered. Next: Step 3a (linear algebra).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -141,12 +141,42 @@ Two things settled while building it:
   alone, which keeps the solver's variable mapping simple. The UI resolves a
   picked line to its two endpoints.
 
-### Step 2: History (undo/redo)
+### Step 2: History (undo/redo) — done
 
 - **Adds:** `core/history/` with `createHistory(doc)`, `dispatch(transaction)`, `undo`, `redo`, and gesture grouping (a drag is one step).
 - **Design:** immutable documents with structural sharing; history is a stack of document references (decided in the plan).
 - **Tests:** the undo-everything property test, redo behavior, redo cleared by new edits, gesture coalescing.
 - **Done when:** the property test passes over a few hundred random transaction sequences.
+
+Delivered as `src/core/history/history.ts`. A `History` is itself an immutable
+value, so `dispatch`, `undo` and `redo` return a new one rather than mutating;
+the UI will keep the latest in a store. `Transaction` is `(doc) => doc`, and a
+transaction that returns its input unchanged records no undo step and leaves
+the redo stack alone.
+
+The property test runs 300 seeded sequences of 25 random edits
+(`tests/fixtures/random-edits.ts`), checking `validate` after every edit and
+then undoing back to the start. It asserts **reference** equality with the
+original document, not deep equality, which is what proves nothing was mutated
+along the way. Three deliberate bugs (ignoring the gesture token, cloning the
+document on create, not clearing the redo stack) were each checked to fail the
+suite.
+
+Settled while building it:
+
+- **Gestures coalesce by token.** `dispatch(history, tx, { gesture })` replaces
+  the present entry when the token matches the last one, so a drag is one step.
+  The caller mints a fresh token per gesture on pointer-down; reusing a token
+  after an ordinary edit correctly starts a new step.
+- **Stack depth is uncapped.** Snapshots share structure, so they are cheap,
+  and the plan already names inverse patches as the answer if memory ever
+  becomes a concern. Revisit only with evidence.
+- **Labels live on entries**, so `undoLabel`/`redoLabel` can drive the menu and
+  the mockup's undo tooltip.
+
+`removeEntity` (drop an entity and clean it out of path records, constraints
+and emptied subpaths) lives in the test fixture for now. It belongs in `src`
+as a real editing helper in Step 5.
 
 ### Step 3a: Small linear algebra
 

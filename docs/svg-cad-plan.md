@@ -342,6 +342,8 @@ Mitigating B's sync risk:
 - **Import, security:** parse and rebuild; never inject imported markup into the page.
 - **IDs:** unique across every collection in a document, not merely within one, because constraints and path members reference points and entities by bare id.
 - **Horizontal/vertical constraints:** stored as a point pair in v1 (not an entity reference), so every v1 constraint references points only. The UI resolves a picked line to its endpoints.
+- **Gesture grouping:** `dispatch` coalesces by a caller-supplied gesture token rather than explicit begin/end calls, so a drag is one undo step. The caller mints a fresh token per gesture.
+- **History depth:** uncapped for now; structural sharing makes snapshots cheap, and inverse patches remain the answer if memory becomes a concern.
 
 ---
 
@@ -353,3 +355,4 @@ Mitigating B's sync risk:
 - 2026-09-20: Decided cross-layer suspend behavior and import defaults (transforms, Bézier circles, units, auto-constraints, non-geometry, security); added compound-path options and tradeoffs.
 - 2026-09-20: Decided persistent cross-layer suspend, path records (option B), and snapshot-based undo/redo.
 - 2026-09-21: Step 1 (document model and `validate`) built; recorded the ID-uniqueness and horizontal/vertical-as-point-pair decisions.
+- 2026-09-21: Step 2 (history) built; recorded the gesture-token and history-depth decisions. CI now runs typecheck, tests and build on every push.
