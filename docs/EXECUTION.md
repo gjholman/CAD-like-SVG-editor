@@ -3,7 +3,8 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 3a (linear algebra) delivered. Next: Step 3b (solver v0).
+**Status:** Step 3b (solver v0) delivered. Phase 1's core is done. Next: Step 4
+(read-only renderer), the first step that needs the UI design.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -214,12 +215,51 @@ Settled while building it:
   on near-cancellation matrices, choosing the sign toward `x[0]` instead of
   away costs about six digits (7.8e-9 against 5.3e-15).
 
-### Step 3b: Solver v0
+### Step 3b: Solver v0 — done
 
 - **Adds:** `core/solver/` with variables from points; constraints: fix, coincident, horizontal, vertical, point-to-point distance; damped Gauss-Newton / Levenberg-Marquardt; DOF from Jacobian rank; per-entity status from the nullspace.
 - **API:** `solve(doc) -> { positions, dof, status, conflicts }`, pure and DOM-free.
 - **Tests:** the plan's rectangle worked example, redundant vs conflicting detection, editing a dimension moves geometry, simulated drag.
 - **Done when:** the rectangle example reports 0 DOF after the last constraint is added, and a contradiction is reported as over defined.
+
+Delivered as `variables.ts` (document to variable vector), `residuals.ts`
+(constraint equations and their analytic derivatives) and `solve.ts` (the LM
+loop and status). All **eight** v1 constraint kinds are implemented, not the
+five listed above: the model defines them all and the rectangle fixture uses
+the horizontal and vertical distance dimensions, so stopping at five would have
+left `validate` accepting documents the solver could not read.
+
+`solve` returns positions, radii, `dof`, `status`, per-entity status,
+`conflicts`, `converged`, `iterations` and the worst residual. `applySolution`
+turns a result into a new document for `dispatch` to record.
+
+Settled while building it:
+
+- **Dragging is two passes, not one objective.** The first draft put the cursor
+  in with the real constraints at equal weight, and a test caught it moving a
+  *fixed* corner to y=25 to meet the cursor halfway. A drag that breaks a `fix`
+  is simply wrong. Now pass one pulls toward the cursor and pass two re-solves
+  the real constraints alone, landing back on the constraint manifold nearest
+  the cursor. Pins are excluded from status too, so dragging fully defined
+  geometry moves nothing and stays black rather than turning red.
+- **Circle radius is a solver variable**, matching the plan's 3 DOF for a
+  circle, so an undimensioned circle correctly reports a free radius.
+- **All residuals are in px**, including point-on-line, which divides the cross
+  product by the line length to give a signed distance rather than an area. One
+  lambda damps every row, so mixed units would weight rows wrongly.
+- **`fix` anchors to the document's stored position.** The solver starts there,
+  so the residual starts at zero and stays there.
+- **Conflicts name the whole dependent group:** every constraint whose removal
+  would not reduce the rank. For two contradictory dimensions that means both,
+  which is honest — either could be the wrong one.
+- **Redundant-but-consistent is over defined** (red), per the plan. A separate
+  `unsolved` status carries the plan's yellow, for when no solution is found
+  from the current starting point.
+
+The Jacobian is hand-derived, so every constraint kind is checked against
+central differences at fixed *and* random configurations. A solver with a wrong
+Jacobian often still converges, just slowly, so convergence tests alone would
+not catch one.
 
 ### Step 4: Read-only renderer
 

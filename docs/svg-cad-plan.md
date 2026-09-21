@@ -345,6 +345,10 @@ Mitigating B's sync risk:
 - **Gesture grouping:** `dispatch` coalesces by a caller-supplied gesture token rather than explicit begin/end calls, so a drag is one undo step. The caller mints a fresh token per gesture.
 - **History depth:** uncapped for now; structural sharing makes snapshots cheap, and inverse patches remain the answer if memory becomes a concern.
 - **Rank and nullspace:** Householder QR with column pivoting, not SVD. One decomposition serves rank, nullspace and least squares. Column norms are recomputed rather than downdated, trading a little speed for the accuracy that definition status depends on.
+- **Dragging:** the cursor is a goal, not a constraint. A drag solves in two passes (pull toward the cursor, then restore the real constraints on their own), so it can never break a relation to reach the cursor, and it never changes the sketch's definition status. Dragging fully defined geometry moves nothing.
+- **Solver residual units:** every residual is in px, including point-on-line, which uses signed distance rather than the raw cross product. Levenberg-Marquardt damps all rows with one lambda, so mixed units would weight them wrongly.
+- **Circle radius is a solver variable**, giving a circle the plan's 3 DOF.
+- **Conflict reporting:** an over-defined sketch names every constraint whose removal would not reduce the Jacobian's rank, i.e. the whole dependent group rather than a guess at which one is wrong.
 
 ---
 
@@ -358,3 +362,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 1 (document model and `validate`) built; recorded the ID-uniqueness and horizontal/vertical-as-point-pair decisions.
 - 2026-09-21: Step 2 (history) built; recorded the gesture-token and history-depth decisions. CI now runs typecheck, tests and build on every push.
 - 2026-09-21: Step 3a (linear algebra) built on pivoted Householder QR; the rectangle's Jacobian confirms 0 DOF fully defined, 1 DOF without the width dimension, and rank 7 from eight rows when the width is dimensioned twice.
+- 2026-09-21: Step 3b (solver v0) built: all eight v1 constraints with analytic Jacobians checked against finite differences, LM iteration, DOF and per-entity status, conflict reporting, and two-pass dragging. Phase 1's core (model, history, solver) is complete.
