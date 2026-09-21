@@ -3,7 +3,7 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Step 2 (history) delivered. Next: Step 3a (linear algebra).
+**Status:** Step 3a (linear algebra) delivered. Next: Step 3b (solver v0).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -178,11 +178,41 @@ Settled while building it:
 and emptied subpaths) lives in the test fixture for now. It belongs in `src`
 as a real editing helper in Step 5.
 
-### Step 3a: Small linear algebra
+### Step 3a: Small linear algebra — done
 
 - **Adds:** `core/solver/linalg.ts`: dense matrices, solve a linear system, rank and nullspace (QR with pivoting, or SVD).
 - **Tests:** known matrices with known rank and nullspace; a well-conditioned solve.
 - **Done when:** rank and nullspace are trustworthy on hand-checked cases.
+
+Delivered as `src/core/solver/linalg.ts`, built on one rank-revealing
+decomposition — Householder QR with column pivoting — that answers all three
+questions Step 3b asks: `rank` (for DOF and definition status), `nullspace`
+(for per-entity blue/black colouring), and `solveLeastSquares` (the
+Gauss-Newton step).
+
+The tests include a hand-written Jacobian for the plan's rectangle, which is
+the real de-risking for Step 3b: with both dimensions it has rank 8 and an
+empty nullspace (0 DOF, fully defined); drop the width dimension and it drops
+to rank 7 with a single free direction, and that direction is exactly the two
+right-hand corners sliding in x together. Dimensioning the width twice gives
+eight constraint rows at rank 7 — the redundancy the plan warns simple
+subtraction cannot see.
+
+Settled while building it:
+
+- **QR with column pivoting, not SVD.** One decomposition covers rank,
+  nullspace and least squares, at a fraction of SVD's code. Revisit only if
+  rank decisions near the tolerance prove flaky in practice.
+- **Column norms are recomputed, not downdated.** Downdating is the usual
+  optimisation but loses accuracy as it goes. At sketch scale the recompute is
+  the same order as the factorisation, and rank is what decides whether the UI
+  calls a sketch fully defined, so accuracy wins.
+- **Rank-deficient least squares returns a basic solution** (free variables at
+  zero), not the minimum-norm one. LM damping makes the stacked system full
+  rank in 3b, so it never bites; the returned `rank` says when it would.
+- **The Householder sign choice is load-bearing** and now has a test. Measured
+  on near-cancellation matrices, choosing the sign toward `x[0]` instead of
+  away costs about six digits (7.8e-9 against 5.3e-15).
 
 ### Step 3b: Solver v0
 
