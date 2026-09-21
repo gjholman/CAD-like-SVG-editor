@@ -1,0 +1,15 @@
+export {
+  canRedo,
+  canUndo,
+  createHistory,
+  current,
+  dispatch,
+  redo,
+  redoLabel,
+  undo,
+  undoLabel,
+  type DispatchOptions,
+  type History,
+  type HistoryEntry,
+  type Transaction,
+} from './history';
