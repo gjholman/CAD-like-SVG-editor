@@ -1,0 +1,219 @@
+/**
+ * The document model: the single source of truth for a sketch.
+ *
+ * Two domains live here, linked only by IDs (see docs/svg-cad-plan.md,
+ * "Compound paths"):
+ *
+ *   constraint domain  points, entities, constraints   <- all the solver sees
+ *   output domain      paths, layers, styles           <- all that becomes SVG
+ *
+ * Documents are treated as immutable: every edit produces a new document, and
+ * history keeps the old ones (docs/EXECUTION.md, Step 2). Nothing in here
+ * mutates, so the `Readonly` markers are the contract, not a suggestion.
+ *
+ * Coordinates are y-down and in px, matching SVG.
+ */
+import type { Id } from './ids';
+
+/** A free point. Points are first-class and shared between entities. */
+export interface Point {
+  readonly id: Id;
+  readonly x: number;
+  readonly y: number;
+}
+
+interface EntityBase {
+  readonly id: Id;
+  readonly layer: Id;
+  /** Construction geometry constrains other geometry but is never exported. */
+  readonly construction: boolean;
+}
+
+/** Line segment between two points. 4 DOF. */
+export interface LineEntity extends EntityBase {
+  readonly kind: 'line';
+  readonly p1: Id;
+  readonly p2: Id;
+}
+
+/** Circle. Centre point plus a radius variable, so 3 DOF. */
+export interface CircleEntity extends EntityBase {
+  readonly kind: 'circle';
+  readonly center: Id;
+  readonly radius: number;
+}
+
+/** Arcs and Bézier chains join this union in Phase 2 and Phase 4. */
+export type Entity = LineEntity | CircleEntity;
+
+export type EntityKind = Entity['kind'];
+
+interface ConstraintBase {
+  readonly id: Id;
+  /**
+   * Suspended constraints stay in the document, greyed in the UI, and are
+   * skipped by the solver until resumed. This is how the cross-layer toggle
+   * works, and the suspension is persistent (a plan decision).
+   */
+  readonly suspended?: boolean;
+}
+
+/** Two points occupy the same location. Removes 2 DOF. */
+export interface CoincidentConstraint extends ConstraintBase {
+  readonly kind: 'coincident';
+  readonly p1: Id;
+  readonly p2: Id;
+}
+
+/** A point lies somewhere on an entity. Removes 1 DOF. */
+export interface PointOnConstraint extends ConstraintBase {
+  readonly kind: 'point-on';
+  readonly point: Id;
+  readonly entity: Id;
+}
+
+/**
+ * Two points share a y (horizontal) or an x (vertical). Removes 1 DOF.
+ *
+ * The plan lists these as applying to "a line or two points"; v1 stores only
+ * the point pair, and the UI resolves a picked line to its endpoints. That
+ * keeps every v1 constraint referencing points alone, which the solver likes.
+ */
+export interface HorizontalConstraint extends ConstraintBase {
+  readonly kind: 'horizontal';
+  readonly p1: Id;
+  readonly p2: Id;
+}
+
+export interface VerticalConstraint extends ConstraintBase {
+  readonly kind: 'vertical';
+  readonly p1: Id;
+  readonly p2: Id;
+}
+
+/** Pins a point where it stands. Removes 2 DOF. */
+export interface FixConstraint extends ConstraintBase {
+  readonly kind: 'fix';
+  readonly point: Id;
+}
+
+/** Driving dimension: straight-line distance between two points. */
+export interface DistanceConstraint extends ConstraintBase {
+  readonly kind: 'distance';
+  readonly p1: Id;
+  readonly p2: Id;
+  readonly value: number;
+}
+
+/** Driving dimension: signed x offset from p1 to p2. */
+export interface HorizontalDistanceConstraint extends ConstraintBase {
+  readonly kind: 'horizontal-distance';
+  readonly p1: Id;
+  readonly p2: Id;
+  readonly value: number;
+}
+
+/** Driving dimension: signed y offset from p1 to p2. */
+export interface VerticalDistanceConstraint extends ConstraintBase {
+  readonly kind: 'vertical-distance';
+  readonly p1: Id;
+  readonly p2: Id;
+  readonly value: number;
+}
+
+/** The v1 constraint set. Phase 2 adds parallel, tangent, equal and friends. */
+export type Constraint =
+  | CoincidentConstraint
+  | PointOnConstraint
+  | HorizontalConstraint
+  | VerticalConstraint
+  | FixConstraint
+  | DistanceConstraint
+  | HorizontalDistanceConstraint
+  | VerticalDistanceConstraint;
+
+export type ConstraintKind = Constraint['kind'];
+
+/** Constraints that carry a driving number. */
+export type DimensionConstraint =
+  | DistanceConstraint
+  | HorizontalDistanceConstraint
+  | VerticalDistanceConstraint;
+
+/**
+ * Presentation attributes carried through import and export untouched.
+ * Styling isn't designed yet, so this stays an opaque bag (a plan decision).
+ */
+export type StyleBag = Readonly<Record<string, string>>;
+
+/**
+ * One entity's place in a subpath. `reversed` means the path walks the entity
+ * from its end to its start, which is how an imported `d` string's direction
+ * survives a round trip.
+ */
+export interface PathMember {
+  readonly entity: Id;
+  readonly reversed: boolean;
+}
+
+export interface SubPath {
+  readonly members: readonly PathMember[];
+  /** A closed subpath exports with a trailing `Z`. */
+  readonly closed: boolean;
+}
+
+/**
+ * An SVG path element: where structure, direction, fill rule and style live.
+ * The solver never sees these.
+ */
+export interface PathRecord {
+  readonly id: Id;
+  readonly layer: Id;
+  readonly subpaths: readonly SubPath[];
+  readonly fillRule: 'nonzero' | 'evenodd';
+  readonly style: StyleBag;
+}
+
+export interface Layer {
+  readonly id: Id;
+  readonly name: string;
+  readonly visible: boolean;
+  readonly locked: boolean;
+}
+
+/** Bumped when the on-disk shape changes; migrations are still an open question. */
+export const DOCUMENT_VERSION = 1;
+
+export interface SketchDocument {
+  readonly version: typeof DOCUMENT_VERSION;
+  readonly points: Readonly<Record<Id, Point>>;
+  readonly entities: Readonly<Record<Id, Entity>>;
+  readonly constraints: Readonly<Record<Id, Constraint>>;
+  readonly paths: Readonly<Record<Id, PathRecord>>;
+  readonly layers: Readonly<Record<Id, Layer>>;
+  /** Draw order, back to front. Must list every layer exactly once. */
+  readonly layerOrder: readonly Id[];
+}
+
+/** A document with a single empty layer, ready to draw into. */
+export function createEmptyDocument(layerId: Id = 'layer1', name = 'Layer 1'): SketchDocument {
+  return {
+    version: DOCUMENT_VERSION,
+    points: {},
+    entities: {},
+    constraints: {},
+    paths: {},
+    layers: { [layerId]: { id: layerId, name, visible: true, locked: false } },
+    layerOrder: [layerId],
+  };
+}
+
+/** The point IDs an entity is built from, in a stable order. */
+export function entityPointIds(entity: Entity): readonly Id[] {
+  switch (entity.kind) {
+    case 'line':
+      return [entity.p1, entity.p2];
+    case 'circle':
+      return [entity.center];
+  }
+}
