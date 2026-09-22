@@ -105,6 +105,38 @@ describe('gridLines', () => {
     expect(gridLines(viewport, { spacing: 0, size })).toEqual([]);
   });
 
+  it('coarsens on a wide canvas instead of dropping an axis', () => {
+    // An ultrawide monitor zoomed out: the line cap used to be enforced by
+    // skipping the axis that exceeded it, so the horizontal axis fitted and
+    // the vertical one vanished — a grid of parallel lines with nothing
+    // crossing them.
+    const lines = gridLines(
+      { panX: 0, panY: 0, scale: 0.8 },
+      { spacing: 10, size: { width: 3440, height: 1440 } },
+    );
+    const xs = lines.filter((line) => line.axis === 'x');
+    const ys = lines.filter((line) => line.axis === 'y');
+
+    expect(xs.length).toBeGreaterThan(0);
+    expect(ys.length).toBeGreaterThan(0);
+    // Both axes stay inside the cap, and the squares stay square.
+    expect(xs.length).toBeLessThanOrEqual(400);
+    expect(ys.length).toBeLessThanOrEqual(400);
+    expect(xs[1]!.at - xs[0]!.at).toBeCloseTo(ys[1]!.at - ys[0]!.at, 10);
+  });
+
+  it('keeps the coarsened spacing a round number', () => {
+    const lines = gridLines(
+      { panX: 0, panY: 0, scale: 0.8 },
+      { spacing: 10, size: { width: 3440, height: 1440 } },
+    );
+    const xs = lines.filter((line) => line.axis === 'x');
+    const step = xs[1]!.at - xs[0]!.at;
+    // Every rung of the ladder is 1, 2 or 5 times a power of ten.
+    const mantissa = step / 10 ** Math.floor(Math.log10(step));
+    expect([1, 2, 5]).toContain(Math.round(mantissa));
+  });
+
   it('gives up rather than drawing an absurd number of lines', () => {
     // A tiny spacing that the ladder is told to respect: bail, do not hang.
     const lines = gridLines({ panX: 0, panY: 0, scale: 1e6 }, { spacing: 1e-9, size: { width: 4000, height: 4000 } });

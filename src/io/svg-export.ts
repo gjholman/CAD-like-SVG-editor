@@ -42,7 +42,12 @@ export interface ExportOptions {
 const DEFAULT_STYLE: StyleBag = { fill: 'none', stroke: '#1b1b1f', 'stroke-width': '1' };
 
 export function toSvg(doc: SketchDocument, options: ExportOptions = {}): string {
-  const positions = options.positions ?? doc.points;
+  // Solved positions on top of the stored ones, merged once. A solve result
+  // covers every point, but a caller passing a partial map used to make half
+  // the helpers below fall back and the other half give up: an arc or a
+  // circle would silently vanish from the export while the lines survived.
+  const positions: Readonly<Record<Id, Point2>> =
+    options.positions === undefined ? doc.points : { ...doc.points, ...options.positions };
   const radii = options.radii ?? {};
   const margin = options.margin ?? 0;
   const style = options.defaultStyle ?? DEFAULT_STYLE;
@@ -96,6 +101,15 @@ export function toSvg(doc: SketchDocument, options: ExportOptions = {}): string 
   ].join('\n');
 }
 
+/**
+ * The smallest extent a viewBox may claim.
+ *
+ * `number` rounds to four decimals, so a nominal 1e-9 minimum printed as
+ * `width="0"` — and an SVG with zero width renders nothing at all. This is
+ * one printable step instead.
+ */
+const MIN_EXTENT = 1e-3;
+
 function viewBox(
   doc: SketchDocument,
   positions: Readonly<Record<Id, Point2>>,
@@ -108,8 +122,8 @@ function viewBox(
   return {
     minX: bounds.minX - margin,
     minY: bounds.minY - margin,
-    maxX: Math.max(bounds.maxX + margin, bounds.minX - margin + 1e-9),
-    maxY: Math.max(bounds.maxY + margin, bounds.minY - margin + 1e-9),
+    maxX: Math.max(bounds.maxX + margin, bounds.minX - margin + MIN_EXTENT),
+    maxY: Math.max(bounds.maxY + margin, bounds.minY - margin + MIN_EXTENT),
   };
 }
 
@@ -204,7 +218,7 @@ export function pathData(
 
       if (entity.kind === 'circle') {
         // A circle cannot continue a chain, so it becomes its own closed run.
-        const centre = positions[entity.center] ?? doc.points[entity.center];
+        const centre = positions[entity.center];
         if (centre === undefined) continue;
         parts.push(circleData(centre, radii[entity.id] ?? entity.radius));
         cursor = undefined;
@@ -214,8 +228,8 @@ export function pathData(
 
       const startId = member.reversed ? entity.p2 : entity.p1;
       const endId = member.reversed ? entity.p1 : entity.p2;
-      const from = positions[startId] ?? doc.points[startId];
-      const to = positions[endId] ?? doc.points[endId];
+      const from = positions[startId];
+      const to = positions[endId];
       if (from === undefined || to === undefined) continue;
 
       // A member that does not begin where the last one ended starts a fresh

@@ -318,6 +318,67 @@ describe('solved values', () => {
   });
 });
 
+describe('degenerate extents', () => {
+  it('gives a vertical line a width a renderer will accept', () => {
+    // The viewBox guarded its minimum extent at 1e-9, but attributes are
+    // rounded to four decimals on the way out — so a vertical line exported
+    // as width="0", and an SVG with zero width draws nothing at all.
+    const doc = compose(
+      addPoint('a', 10, 0),
+      addPoint('b', 10, 100),
+      addLine('line1', 'a', 'b', 'layer1'),
+      startPath('path1', 'line1'),
+    )(createEmptyDocument());
+
+    const root = parse(toSvg(doc));
+    expect(Number(root.getAttribute('width'))).toBeGreaterThan(0);
+    const [, , boxWidth] = root.getAttribute('viewBox')!.split(' ').map(Number);
+    expect(boxWidth).toBeGreaterThan(0);
+  });
+
+  it('does the same for a horizontal line', () => {
+    const doc = compose(
+      addPoint('a', 0, 10),
+      addPoint('b', 100, 10),
+      addLine('line1', 'a', 'b', 'layer1'),
+      startPath('path1', 'line1'),
+    )(createEmptyDocument());
+
+    const root = parse(toSvg(doc));
+    expect(Number(root.getAttribute('height'))).toBeGreaterThan(0);
+  });
+
+  it('keeps a single point exportable too', () => {
+    const doc = addPoint('a', 5, 5)(createEmptyDocument());
+    const root = parse(toSvg(doc));
+    expect(Number(root.getAttribute('width'))).toBeGreaterThan(0);
+    expect(Number(root.getAttribute('height'))).toBeGreaterThan(0);
+  });
+});
+
+describe('a partial positions map', () => {
+  it('still exports the arcs and circles it says nothing about', () => {
+    // A caller handing in positions for only the points it moved used to lose
+    // whole entities: some helpers fell back to the stored points and others
+    // simply returned undefined, so the lines came out and the arc did not.
+    const doc = compose(
+      addPoint('c', 0, 0),
+      addPoint('s', 100, 0),
+      addPoint('e', 0, 100),
+      addPoint('a', 0, 0),
+      addPoint('b', 50, 0),
+      addArc('arc1', 'c', 's', 'e', 'layer1'),
+      addLine('line1', 'a', 'b', 'layer1'),
+    )(createEmptyDocument());
+
+    // Only one point is named, and not one the arc uses.
+    const root = parse(toSvg(doc, { positions: { b: { x: 60, y: 0 } } }));
+
+    expect(root.querySelector('#arc1')).not.toBeNull();
+    expect(root.querySelector('#line1')!.getAttribute('x2')).toBe('60');
+  });
+});
+
 /** The step's "done when": save, reload, and export to a valid SVG. */
 describe('the Step 6 rectangle survives the whole trip', () => {
   it('saves, reloads and exports', () => {

@@ -130,6 +130,26 @@ describe('sketchBounds with arcs', () => {
     expectBounds(sketchBounds(doc), { minX: 0, minY: -100, maxX: 100, maxY: 100 });
   });
 
+  it('boxes an arc even when the positions map only mentions other points', () => {
+    // `arcShape` does its own lookups and has nothing to fall back on, so a
+    // partial map used to drop the arc out of the bounds — and with it out of
+    // zoom-to-fit and the exported viewBox.
+    const doc = compose(
+      addPoint('c', 0, 0),
+      addPoint('s', 0, -100),
+      addPoint('e', 0, 100),
+      addArc('arc1', 'c', 's', 'e', 'layer1'),
+      addPoint('loose', 5, 5),
+    )(createEmptyDocument());
+
+    expectBounds(sketchBounds(doc, { loose: { x: 5, y: 5 } }), {
+      minX: 0,
+      minY: -100,
+      maxX: 100,
+      maxY: 100,
+    });
+  });
+
   it('boxes the other way round to the other side', () => {
     const doc = compose(
       addPoint('c', 0, 0),

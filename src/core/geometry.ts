@@ -113,9 +113,16 @@ export function arcShape(
  */
 export function sketchBounds(
   doc: SketchDocument,
-  positions: Readonly<Record<Id, Point2>> = doc.points,
+  givenPositions: Readonly<Record<Id, Point2>> = doc.points,
   radii: Readonly<Record<Id, number>> = {},
 ): Bounds | undefined {
+  // Merged once, so every lookup below is safe. The arc branch goes through
+  // `arcShape`, which does its own lookups and cannot fall back on its own —
+  // a partial map used to drop arcs out of the bounds entirely, and with them
+  // out of zoom-to-fit and the exported viewBox.
+  const positions =
+    givenPositions === doc.points ? doc.points : { ...doc.points, ...givenPositions };
+
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -131,13 +138,13 @@ export function sketchBounds(
   };
 
   for (const id of Object.keys(doc.points)) {
-    const point = positions[id] ?? doc.points[id]!;
+    const point = positions[id]!;
     include(point.x, point.y);
   }
 
   for (const entity of Object.values(doc.entities)) {
     if (entity.kind === 'circle') {
-      const centre = positions[entity.center] ?? doc.points[entity.center];
+      const centre = positions[entity.center];
       if (centre === undefined) continue;
       const radius = radii[entity.id] ?? entity.radius;
       include(centre.x - radius, centre.y - radius);

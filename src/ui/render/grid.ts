@@ -49,6 +49,35 @@ export function chooseGridSpacing(preferred: number, scale: number): number {
   return spacing;
 }
 
+/** The next 1-2-5 step strictly above `spacing`. */
+function ladderStepAbove(spacing: number): number {
+  const decade = 10 ** Math.floor(Math.log10(spacing) + 1e-12);
+  for (const step of [1, 2, 5, 10]) {
+    const candidate = decade * step;
+    if (candidate > spacing * (1 + 1e-9)) return candidate;
+  }
+  return spacing * 10;
+}
+
+/**
+ * Spacing coarse enough that neither axis exceeds the line cap.
+ *
+ * The cap used to be enforced by skipping the offending axis, which on a wide
+ * monitor zoomed out meant one axis fitted and the other did not: the grid
+ * became a set of parallel lines with nothing crossing them. Dropping half
+ * the grid is a worse answer than drawing a coarser one, and stepping up the
+ * ladder keeps the spacing a round number and the squares square.
+ */
+function coarsenToFit(spacing: number, widestSpan: number): number {
+  let coarse = spacing;
+  // Each step is at least 2x, so this terminates long before the guard.
+  for (let step = 0; step < 40; step += 1) {
+    if (widestSpan / coarse + 1 <= MAX_LINES) break;
+    coarse = ladderStepAbove(coarse);
+  }
+  return coarse;
+}
+
 /** Rounds a point to the nearest grid intersection. */
 export function snapToGrid(point: Point2, spacing: number): Point2 {
   if (!(spacing > 0)) return point;
@@ -73,14 +102,16 @@ export interface GridLine {
  * more grid square.
  */
 export function gridLines(viewport: Viewport, options: GridOptions): GridLine[] {
-  const minor = chooseGridSpacing(options.spacing, viewport.scale);
-  if (!(minor > 0)) return [];
+  const chosen = chooseGridSpacing(options.spacing, viewport.scale);
+  if (!(chosen > 0)) return [];
 
-  const major = minor * MAJOR_EVERY;
   const left = viewport.panX;
   const top = viewport.panY;
   const right = left + options.size.width / viewport.scale;
   const bottom = top + options.size.height / viewport.scale;
+
+  const minor = coarsenToFit(chosen, Math.max(right - left, bottom - top));
+  const major = minor * MAJOR_EVERY;
 
   const lines: GridLine[] = [];
   for (const [axis, from, to] of [
@@ -89,7 +120,9 @@ export function gridLines(viewport: Viewport, options: GridOptions): GridLine[] 
   ] as const) {
     const first = Math.ceil(from / minor) * minor;
     const count = Math.floor((to - first) / minor) + 1;
-    if (count > MAX_LINES || count < 0) continue;
+    // The spacing above already fits the cap; a negative count only means the
+    // axis has no visible extent at all.
+    if (count < 0) continue;
 
     for (let i = 0; i < count; i += 1) {
       // Multiply rather than accumulate, so 0 lands exactly on 0.

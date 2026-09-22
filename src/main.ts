@@ -14,7 +14,7 @@ import {
   type RelationKind,
   type ToolName,
 } from './ui/editor';
-import { formatValue, isDimension, screenToWorld } from './ui/render';
+import { formatValue, isDimension, screenToWorld, signedDimensionValue } from './ui/render';
 import { SketchFileError, fromJson, suggestFilename, toJson, toSvg } from './io';
 import { constraintRefs, type Constraint } from './core/model';
 
@@ -211,7 +211,7 @@ function syncRelations(): void {
           return;
         }
         // The label shows a magnitude, so a right-to-left pick keeps its sign.
-        editor.setDimensionValue(constraint.id, constraint.value < 0 ? -next : next);
+        editor.setDimensionValue(constraint.id, signedDimensionValue(constraint.value, next));
         syncChrome();
       });
       acts.append(input);
@@ -413,7 +413,9 @@ q('[data-action="download"]')?.addEventListener('click', () => {
   link.href = url;
   link.download = pending.filename;
   link.click();
-  URL.revokeObjectURL(url);
+  // The click starts the download asynchronously, so revoking the URL on this
+  // same tick can pull the blob out from under it. Next tick is late enough.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 });
 
 q('[data-action="open"]')?.addEventListener('click', () => fileInput?.click());

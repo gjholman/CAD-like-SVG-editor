@@ -48,6 +48,9 @@ export function dimensionGeometry(
   // Two dimensions on the same pair would land on top of each other, which is
   // exactly the over-defined case a user most needs to see.
   const stacked = new Map<string, number>();
+  // One pass over every point, not one per dimension: this is the same answer
+  // each time round the loop below.
+  const middle = centre(doc, positions);
 
   for (const id of Object.keys(doc.constraints).sort()) {
     const constraint = doc.constraints[id]!;
@@ -62,7 +65,7 @@ export function dimensionGeometry(
     stacked.set(key, depth + 1);
 
     const offset = (OFFSET + depth * STACK) / viewport.scale;
-    out.push(layout(constraint, from, to, offset, viewport, centre(doc, positions)));
+    out.push(layout(constraint, from, to, offset, viewport, middle));
   }
 
   return out;
@@ -198,6 +201,22 @@ export function isDimension(
 export function formatValue(value: number): string {
   const magnitude = Math.abs(value);
   return Number.isInteger(magnitude) ? String(magnitude) : magnitude.toFixed(2);
+}
+
+/**
+ * The value to store when the user types `typed` into a field showing
+ * `stored`'s magnitude.
+ *
+ * Because the field shows a magnitude, the sign belongs to the pick order and
+ * not to what was typed: a width stored as -480 (picked right to left) edited
+ * to 300 must become -300. Re-applying the stored sign with a bare negation
+ * did that, but inverted a *typed* negative — typing -300 into that same
+ * field flipped the dimension's orientation instead of being read as the 300
+ * the field would have shown it as.
+ */
+export function signedDimensionValue(stored: number, typed: number): number {
+  const magnitude = Math.abs(typed);
+  return stored < 0 ? -magnitude : magnitude;
 }
 
 function round(value: number): number {
