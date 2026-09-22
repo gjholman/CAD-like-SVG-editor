@@ -24,13 +24,16 @@ How we build the CAD-like SVG editor, in small steps. The *what* and *why* live 
 | 13 | Relations panel: highlighting, cross-layer suspend | ◐ suspend and delete done |
 | — | Chrome rebuild, grid, snapping, delete (added out of order) | ✅ |
 
-**554 tests** across 27 files. `npm run typecheck`, `npm run test:run` and
+**667 tests** across 31 files. `npm run typecheck`, `npm run test:run` and
 `npm run build` all clean, and CI runs the three on every push.
 
 Reading order for someone new: [`../README.md`](../README.md) for what it is,
 [`SOLVING.md`](SOLVING.md) for how the solver works and what the colours mean,
 [`svg-cad-plan.md`](svg-cad-plan.md) for the design intent and where the build
 differs from it, then this file for the order things were built in.
+[`PITFALLS.md`](PITFALLS.md) is the shortest useful thing to read before
+changing anything: the mistakes this build keeps making, and the habits that
+catch them.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -44,6 +47,9 @@ Steps 4 to 6 work from it.
 - **One entry point for change.** Every edit to the document goes through history `dispatch`. UI code never mutates the model directly (this is what makes undo cheap).
 - **Few dependencies.** Right now: Vite, Vitest, TypeScript. Later, only when a step needs it: `jsdom` (DOM tests for SVG import/export), maybe Playwright (end-to-end).
 - **Keep the plan alive.** When a step settles a decision, update `svg-cad-plan.md` (decisions log + changelog).
+- **Mutation-test every fix.** Break the fix on purpose, watch the test fail, put the fix back. A test written to prove a fix works is worthless until it has been seen to fail — this has caught vacuous tests twice, including two that asserted nothing because they used ids the fixture did not contain.
+- **Drive the real app for anything visual.** jsdom has no layout, no painting and no pointer events, so it cannot see a tool that never closes a loop, a button destroyed before its click lands, or geometry that exists but renders as nothing. All three happened. Chromium via Playwright, against `vite dev`.
+- **When a bug has a shape, write it down.** [`PITFALLS.md`](PITFALLS.md) collects the classes, not the instances.
 
 ### Assumptions to confirm
 
@@ -64,9 +70,10 @@ CAD-like-SVG-editor/
 │   ├── svg-cad-plan.md     design intent, decisions, and where the build differs
 │   ├── EXECUTION.md        this file: the order things were built in
 │   ├── SOLVING.md          how solving works, in plain terms
+│   ├── PITFALLS.md         the bug classes that keep recurring, and the habits
 │   └── mockups/            ui-mockup-v1.html, the chrome's design source
 ├── src/
-│   ├── main.ts             mounts the editor and wires the chrome
+│   ├── main.ts             mounts the editor, then hands off to ui/chrome
 │   ├── landing.ts          entry for the landing page
 │   ├── styles/
 │   │   ├── app.css         editor chrome
@@ -80,7 +87,11 @@ CAD-like-SVG-editor/
 │   ├── io/                 native JSON save/load, SVG export (import in Phase 4)
 │   └── ui/
 │       ├── render/         canvas, viewport, grid, dimensions
-│       └── editor/         tools, hit testing, commands, inference
+│       ├── chrome/         panels, buttons, file dialogs, and their wording
+│       └── editor/         the shell, the drawing tools, hit testing, commands
+│                           (editor.ts is the shell; line-tool.ts and
+│                            arc-tool.ts own their own in-progress state behind
+│                            tool-context.ts; keymap.ts is the keyboard map)
 └── tests/
     └── fixtures/           the rectangle, and a seeded random-edit generator
 ```
@@ -109,6 +120,7 @@ This maps onto the two domains in the plan: `core/model` holds the **constraint 
 - **Tests that need a DOM** opt in per file with `// @vitest-environment jsdom` on the first line. `jsdom` is installed as of Step 4; `render.test.ts` is the first file to use it.
 - **Location:** unit tests sit next to the code (`solver.test.ts` beside `solver.ts`). Cross-module tests and fixtures live in `tests/`.
 - **Scripts:** `npm test` (watch), `npm run test:run` (once), `npm run typecheck`.
+- **Real-browser checks** are throwaway Playwright scripts run against `npm run dev`, not part of the suite. Chromium is at `/opt/pw-browsers/chromium`. They are for what jsdom cannot see: hit testing, layout, painting, focus. Anything they catch gets a unit test too, wherever one is possible.
 
 ### What each layer tests
 

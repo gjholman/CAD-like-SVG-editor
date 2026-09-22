@@ -338,7 +338,9 @@ src/core/solver/
   linalg.ts          QR, rank, nullspace, least squares
   solve.ts           the iteration, plus DOF, status and conflicts
 src/ui/render/       drawing it, including the status colours
-src/ui/editor/       tools, hit testing, relation commands, inference
+src/ui/editor/       the editor shell, the drawing tools, hit testing,
+                     relation commands, inference
+src/ui/chrome/       the panels around it, and the words they show
 ```
 
 The v1 derivatives are hand-written; the v2 ones come from a small

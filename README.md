@@ -6,6 +6,7 @@ dimensions, and a solver keeps the geometry consistent.
 - How solving works, in plain terms: [`docs/SOLVING.md`](docs/SOLVING.md)
 - Plan, decisions, and where the build differs from them: [`docs/svg-cad-plan.md`](docs/svg-cad-plan.md)
 - How we build it, step by step: [`docs/EXECUTION.md`](docs/EXECUTION.md)
+- Bugs this build keeps making, and the habits that catch them: [`docs/PITFALLS.md`](docs/PITFALLS.md)
 
 ## Quick start
 
