@@ -11,6 +11,7 @@ export {
   type Point2,
 } from '../../core/geometry';
 export { arcPathData, render, type Preview, type RenderOptions } from './render';
+export { chooseGridSpacing, gridLines, snapToGrid, type GridLine, type GridOptions } from './grid';
 export {
   arrowPath,
   dimensionGeometry,

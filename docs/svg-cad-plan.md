@@ -363,6 +363,9 @@ Mitigating B's sync risk:
 - **A subpath exports closed only when the walk returned to where its current run started.** `Z` closes to the last `M`, so closing a path with a gap in it would draw an edge the sketch does not have.
 - **Loading a native file validates before returning it**, failing with a message that names the problem. Files from a newer version are refused rather than half-read.
 - **Hidden layers export hidden** rather than being dropped, so a round trip loses nothing.
+- **Grid spacing adapts through a 1-2-5 ladder** rather than being fixed, so lines stay a usable distance apart on screen at any zoom while every spacing remains a round number.
+- **Snapping never overrides an existing point**, and is opt-in at the editor API so callers do not inherit a change to where their clicks land.
+- **Deleting a point cascades** to the entities that referenced it and the constraints that named it: anything else would leave a dangling reference that `validate` rejects.
 - **Arcs are stored as three points** (centre, start, end) plus a direction flag, not as centre/radius/angles. Radius is derived, endpoints are ordinary points that lines and arcs can share, and the solver adds one implicit constraint per arc (the endpoints are equidistant from the centre) so the DOF still come to 5, as the DOF table says.
 
 ---
@@ -385,3 +388,5 @@ Mitigating B's sync risk:
 - 2026-09-21: Phase 2 broken into Steps 8-13; decided arcs are stored as three shared points plus a direction flag rather than centre/radius/angles, so endpoints can be shared with other geometry.
 - 2026-09-21: Step 8 (arcs in the core) built: the arc entity, its implicit equal-radius constraint, point-on an arc, and DOF and per-entity status. An arc reports 5 DOF and shares endpoints with lines without a coincident constraint.
 - 2026-09-21: Step 9 (arcs in the UI and export) built: arc rendering, rim hit testing within the sweep, a centrepoint arc tool that takes its direction from the traced sweep, and `A` commands on export. Shared geometry moved to `core/geometry.ts`, restoring the `ui -> io -> core` dependency rule.
+
+- 2026-09-22: Chrome rebuilt on the mockup (icon tool rail, panels, view HUD, status bar); added an adaptive drawing grid with snapping, and delete.

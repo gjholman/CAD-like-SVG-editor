@@ -7,6 +7,7 @@
  * Structure, following the mockup's conventions:
  *
  *   <g class="sketch-view" transform=...>      pan and zoom
+ *     <g class="sketch-grid">                  the drawing grid, behind all
  *     <g class="sketch-layer" data-layer=...>  one per visible layer, back to front
  *       <g class="sketch-entity is-full" data-entity=...>
  *     <g class="sketch-points">                points on top of the geometry
@@ -23,6 +24,7 @@ import type { EntityStatus, SolveResult } from '../../core/solver';
 import { arcShape, type ArcShape } from '../../core/geometry';
 import type { Entity, Id, SketchDocument } from '../../core/model';
 import { arrowPath, dimensionGeometry, type DimensionGeometry } from './dimensions';
+import { gridLines, type GridOptions } from './grid';
 import { viewTransform, type Point2, type Viewport } from './viewport';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -41,6 +43,8 @@ export interface RenderOptions {
   readonly preview?: Preview;
   /** Draw dimension annotations. On by default. */
   readonly showDimensions?: boolean;
+  /** The drawing grid. Omitted means no grid. */
+  readonly grid?: GridOptions;
   /**
    * Status and solved geometry. Without it the document's own stored values
    * are drawn and everything renders as under defined, which is the honest
@@ -65,6 +69,8 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
 
   root.replaceChildren();
   const view = element('g', { class: 'sketch-view', transform: viewTransform(viewport) });
+
+  if (options.grid !== undefined) view.append(gridGroup(viewport, options.grid));
 
   const positions = result?.positions ?? doc.points;
   const radii = result?.radii ?? {};
@@ -230,6 +236,36 @@ function touchesConflict(entityId: Id, conflicted: ReadonlySet<Id>, doc: SketchD
 function statusClass(status: EntityStatus | undefined, overDefined: boolean): string {
   if (overDefined) return 'is-over';
   return status === 'fully-defined' ? 'is-full' : 'is-under';
+}
+
+/**
+ * The grid, appended first so everything else sits on top of it.
+ *
+ * Lines span the visible world box rather than being clipped element by
+ * element, which keeps the count down: one line per grid step, not per cell.
+ */
+function gridGroup(viewport: Viewport, grid: GridOptions): Element {
+  const group = element('g', { class: 'sketch-grid' });
+  const left = viewport.panX;
+  const top = viewport.panY;
+  const right = left + grid.size.width / viewport.scale;
+  const bottom = top + grid.size.height / viewport.scale;
+
+  for (const line of gridLines(viewport, grid)) {
+    const horizontal = line.axis === 'y';
+    group.append(
+      element('line', {
+        class: `grid-line grid-${line.kind}`,
+        x1: horizontal ? left : line.at,
+        y1: horizontal ? line.at : top,
+        x2: horizontal ? right : line.at,
+        y2: horizontal ? line.at : bottom,
+        'vector-effect': 'non-scaling-stroke',
+      }),
+    );
+  }
+
+  return group;
 }
 
 function dimensionsGroup(

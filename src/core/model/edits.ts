@@ -11,6 +11,7 @@
  * and drawing tools extend paths through `extendPath` rather than by hand.
  */
 import type { Id } from './ids';
+import { entityPointIds } from './types';
 import type { Constraint, Entity, PathRecord, Point, SketchDocument, SubPath } from './types';
 
 /** Structurally identical to history's `Transaction`; kept separate so `model` owns no dependency on `history`. */
@@ -166,6 +167,44 @@ export function removeEntity(entityId: Id): DocumentEdit {
 
     return { ...doc, entities, paths, constraints };
   };
+}
+
+/**
+ * Drops a point, and with it anything that cannot exist without it: every
+ * entity that referenced it and every constraint that named it.
+ *
+ * Deleting a point but keeping a line that used it would leave a dangling
+ * reference, which `validate` rejects — so the cascade is not a convenience,
+ * it is the only correct behaviour.
+ */
+export function removePoint(pointId: Id): DocumentEdit {
+  return (doc) => {
+    if (!Object.hasOwn(doc.points, pointId)) return doc;
+
+    const doomed = Object.values(doc.entities)
+      .filter((entity) => entityPointIds(entity).includes(pointId))
+      .map((entity) => entity.id);
+
+    // Entity removal also cleans up path members and point-on constraints.
+    const withoutEntities = compose(...doomed.map((id) => removeEntity(id)))(doc);
+
+    const points = { ...withoutEntities.points };
+    delete points[pointId];
+
+    const constraints = Object.fromEntries(
+      Object.entries(withoutEntities.constraints).filter(
+        ([, constraint]) => !constraintNames(constraint, pointId),
+      ),
+    );
+
+    return { ...withoutEntities, points, constraints };
+  };
+}
+
+function constraintNames(constraint: Constraint, pointId: Id): boolean {
+  if ('point' in constraint) return constraint.point === pointId;
+  if ('p1' in constraint) return constraint.p1 === pointId || constraint.p2 === pointId;
+  return false;
 }
 
 /** Every point an entity still in the document depends on. */

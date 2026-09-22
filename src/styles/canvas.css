@@ -114,3 +114,18 @@
 /* Suspended relations stay visible but greyed, per the plan. */
 .sketch-stage .dimension.is-suspended { opacity: 0.55; }
 .sketch-stage .dimension.is-suspended .dim-line { stroke-dasharray: 4 3; }
+
+/* Grid -------------------------------------------------------------------
+   Quiet enough to draw over: the minor lines should read as paper texture,
+   not as geometry. The two lines through the origin are called out, because a
+   sketch is anchored to its origin and knowing where that is matters. */
+:root {
+  --grid-minor: #eef1f3;
+  --grid-major: #dde3e8;
+  --grid-origin: #c3ccd4;
+}
+
+.sketch-stage .grid-line { fill: none; stroke-width: 1; }
+.sketch-stage .grid-minor { stroke: var(--grid-minor); }
+.sketch-stage .grid-major { stroke: var(--grid-major); }
+.sketch-stage .grid-origin { stroke: var(--grid-origin); }

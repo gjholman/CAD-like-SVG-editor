@@ -4,7 +4,8 @@ How we build the CAD-like SVG editor, in small steps. The *what* and *why* live 
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
 **Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Steps 8 and 9
-(arcs) done, Step 10 (the rest of the relation set) next.
+(arcs) done, the chrome rebuilt, grid and delete in. Step 12 (inference) next;
+Steps 10 and 11 (relations, angle dimensions) still to come.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -41,7 +42,7 @@ CAD-like-SVG-editor/
 │   ├── svg-cad-plan.md     the plan and decisions
 │   └── EXECUTION.md        this file
 ├── src/
-│   ├── main.ts             entry: mounts the editor
+│   ├── main.ts             entry: mounts the editor and wires the chrome
 │   ├── landing.ts          entry for the landing page
 │   ├── styles/
 │   │   └── landing.css
@@ -518,6 +519,39 @@ Settled while building it:
   side of the circle is not clickable.
 - **A reversed path member travels the arc the other way**, which flips the
   sweep flag as well as the endpoints.
+
+### Chrome rebuild, grid and delete (out of step order)
+
+Taken early, because the plain toolbar was wrapping to three rows and every new
+tool made it worse.
+
+- **Adds:** the mockup's chrome — icon tool rail, menu bar, collapsible
+  Selection and Relations panels, view HUD, status bar — reusing the mockup's
+  own icon sprite so the two stay the same drawing. A drawing grid with
+  1-2-5 adaptive spacing, snap-to-grid, and delete.
+- **Not built yet:** rulers, and the layer and parameter panels, which wait for
+  the features that would fill them. There is no artboard either: the canvas is
+  unbounded paper rather than a sized sheet.
+
+Settled while building it:
+
+- **Grid spacing steps through a 1-2-5 ladder.** A fixed 10px grid becomes a
+  grey wash zoomed out and vanishes zoomed in; the ladder keeps lines a usable
+  distance apart on screen at any scale, and every step is a round number so
+  the coordinates stay readable. The two lines through the origin are called
+  out, because a sketch is anchored to its origin.
+- **Snapping never overrides an existing point.** Joining to real geometry
+  matters more than landing on a round number, and shared points are what make
+  the topology explicit.
+- **Snapping is off in the editor API and on in the app.** It changes where a
+  click lands, so callers opt in rather than inherit it.
+- **Deleting a point takes its geometry with it.** Keeping a line whose
+  endpoint has gone would leave a dangling reference that `validate` rejects,
+  so the cascade is the only correct behaviour, not a convenience. Orphaned
+  points are pruned afterwards.
+- **The panel only rebuilds when it changed.** Resyncing the chrome on every
+  global pointer event tore the clicked row out of the DOM before its `click`
+  fired, so the panel's own delete and suspend buttons silently did nothing.
 
 ### Step 10: The rest of the relation set
 

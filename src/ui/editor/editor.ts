@@ -24,6 +24,10 @@ import {
   createEmptyDocument,
   createIdGenerator,
   extendPath,
+  pruneOrphanPoints,
+  removeConstraint,
+  removeEntity,
+  removePoint,
   startPath,
   type Id,
   type IdGenerator,
@@ -46,6 +50,7 @@ import {
   arcPoint,
   fitTo,
   normalizeAngle,
+  snapToGrid,
   panBy,
   render,
   screenToWorld,
@@ -94,8 +99,20 @@ export interface EditorOptions {
   /** Where key handlers attach. Defaults to the root's owner document. */
   readonly keyboardTarget?: EventTarget;
   readonly nextId?: IdGenerator;
-  /** Canvas size, for `zoomToFit`. Defaults to reading the root's box. */
+  /** Canvas size, for `zoomToFit` and for how much grid to draw. */
   readonly size?: () => { width: number; height: number };
+  /** Grid spacing in world px. */
+  readonly gridSpacing?: number;
+  /** Draw the grid. Default true. */
+  readonly showGrid?: boolean;
+  /** Draw dimension annotations. Default true. */
+  readonly showDimensions?: boolean;
+  /**
+   * Round new points to the grid. Default **false**: snapping changes where a
+   * click lands, so it is opt-in and the app turns it on rather than every
+   * caller inheriting it.
+   */
+  readonly snapToGrid?: boolean;
 }
 
 export interface Editor {
@@ -116,6 +133,15 @@ export interface Editor {
   setSuspended(id: Id, suspended: boolean): void;
   getTool(): ToolName;
   setTool(tool: ToolName): void;
+  isGridVisible(): boolean;
+  setGridVisible(visible: boolean): void;
+  isSnapping(): boolean;
+  setSnapping(snapping: boolean): void;
+  areDimensionsVisible(): boolean;
+  setDimensionsVisible(visible: boolean): void;
+  getGridSpacing(): number;
+  /** Removes whatever is selected, and anything that cannot survive without it. */
+  deleteSelection(): void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;
@@ -151,6 +177,10 @@ export function createEditor(options: EditorOptions): Editor {
   let history = createHistory(options.document ?? createEmptyDocument());
   let viewport: Viewport = IDENTITY_VIEWPORT;
   let tool: ToolName = 'select';
+  let showGrid = options.showGrid ?? true;
+  let snapping = options.snapToGrid ?? false;
+  let showDimensions = options.showDimensions ?? true;
+  const gridSpacing = options.gridSpacing ?? 10;
   let selection: Id[] = [];
   let result: SolveResult = solve(current(history));
 
@@ -206,7 +236,24 @@ export function createEditor(options: EditorOptions): Editor {
 
   function draw(): void {
     const preview = previewFor();
-    render(root, current(history), { viewport, result, selection, preview });
+    render(root, current(history), {
+      viewport,
+      result,
+      selection,
+      preview,
+      showDimensions,
+      grid: showGrid ? { spacing: gridSpacing, size: options.size?.() ?? measure(root) } : undefined,
+    });
+  }
+
+  /**
+   * Where a click should actually land. Snapping never overrides an existing
+   * point: joining to real geometry matters more than landing on a round
+   * number, and that is what makes shared points work.
+   */
+  function place(at: Point2, hit: Hit | undefined): Point2 {
+    if (hit?.kind === 'point') return at;
+    return snapping ? snapToGrid(at, gridSpacing) : at;
   }
 
   interface ApplyOptions {
@@ -339,9 +386,12 @@ export function createEditor(options: EditorOptions): Editor {
       // The solver runs during the drag with the point pinned to the cursor,
       // so the rest of the sketch follows along whatever freedom it has.
       const dragged = drag;
+      // A drag ignores the point under the cursor (it is the one being moved),
+      // so snapping applies whenever it is on.
+      const target = snapping ? snapToGrid(at, gridSpacing) : at;
       apply((doc) => doc, 'Move point', {
         gesture: dragged.gesture,
-        pinned: { [dragged.pointId]: at },
+        pinned: { [dragged.pointId]: target },
       });
       dragged.moved = true;
       return;
@@ -372,7 +422,8 @@ export function createEditor(options: EditorOptions): Editor {
     // Clicking an existing point reuses it, so the two segments genuinely
     // share a point rather than merely touching.
     const pointId = hit?.kind === 'point' ? hit.id : nextId('p');
-    const createPoint = hit?.kind === 'point' ? undefined : addPoint(pointId, at.x, at.y);
+    const where = place(at, hit);
+    const createPoint = hit?.kind === 'point' ? undefined : addPoint(pointId, where.x, where.y);
 
     if (chainPoint === undefined) {
       if (createPoint !== undefined) apply(createPoint, 'Start line');
@@ -459,7 +510,8 @@ export function createEditor(options: EditorOptions): Editor {
 
     if (arcCentre === undefined) {
       const id = existing ?? nextId('p');
-      if (existing === undefined) apply(addPoint(id, at.x, at.y), 'Arc centre');
+      const where = place(at, hit);
+      if (existing === undefined) apply(addPoint(id, where.x, where.y), 'Arc centre');
       arcCentre = id;
       draw();
       return;
@@ -468,7 +520,8 @@ export function createEditor(options: EditorOptions): Editor {
     if (arcStart === undefined) {
       if (existing === arcCentre) return; // a zero radius is not an arc
       const id = existing ?? nextId('p');
-      if (existing === undefined) apply(addPoint(id, at.x, at.y), 'Arc start');
+      const where = place(at, hit);
+      if (existing === undefined) apply(addPoint(id, where.x, where.y), 'Arc start');
       arcStart = id;
       arcSweep = 0;
       arcLastAngle = pointAt(arcCentre) === undefined ? undefined : angleOf(pointAt(arcCentre)!, at);
@@ -558,6 +611,15 @@ export function createEditor(options: EditorOptions): Editor {
       case 'D':
         editor.addDimension();
         break;
+      case 'g':
+      case 'G':
+        editor.setGridVisible(!showGrid);
+        break;
+      case 'Backspace':
+      case 'Delete':
+        event.preventDefault();
+        editor.deleteSelection();
+        break;
       case 'Escape':
         endChain();
         selection = [];
@@ -618,10 +680,43 @@ export function createEditor(options: EditorOptions): Editor {
       apply(setSuspended(id, suspended), suspended ? 'Suspend relation' : 'Resume relation');
     },
     getTool: () => tool,
+    isGridVisible: () => showGrid,
+    setGridVisible(visible) {
+      if (visible === showGrid) return;
+      showGrid = visible;
+      draw();
+    },
+    isSnapping: () => snapping,
+    setSnapping(next) {
+      snapping = next;
+    },
+    areDimensionsVisible: () => showDimensions,
+    setDimensionsVisible(visible) {
+      if (visible === showDimensions) return;
+      showDimensions = visible;
+      draw();
+    },
+    getGridSpacing: () => gridSpacing,
     setTool(next) {
       if (next === tool) return;
       endChain();
       tool = next;
+      draw();
+    },
+    deleteSelection() {
+      const doc = current(history);
+      if (selection.length === 0) return;
+
+      const edits = selection.map((id) => {
+        if (Object.hasOwn(doc.points, id)) return removePoint(id);
+        if (Object.hasOwn(doc.entities, id)) return removeEntity(id);
+        return removeConstraint(id);
+      });
+
+      // Geometry that was only there to hold a deleted entity goes too, or the
+      // canvas fills with stray dots.
+      apply(compose(...edits, pruneOrphanPoints()), 'Delete');
+      selection = [];
       draw();
     },
     undo() {

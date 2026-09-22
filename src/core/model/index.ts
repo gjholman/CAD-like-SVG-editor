@@ -43,6 +43,7 @@ export {
   referencedPoints,
   removeConstraint,
   removeEntity,
+  removePoint,
   startPath,
   type DocumentEdit,
 } from './edits';
