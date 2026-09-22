@@ -346,6 +346,22 @@ export function constraintRefs(constraint: Constraint): {
   }
 }
 
+/**
+ * Every id a document uses, across all five collections.
+ *
+ * Ids must be unique document-wide, not per collection, so anything asking
+ * "is this id taken?" has to look at all of them.
+ */
+export function documentIds(doc: SketchDocument): Id[] {
+  return [
+    ...Object.keys(doc.points),
+    ...Object.keys(doc.entities),
+    ...Object.keys(doc.constraints),
+    ...Object.keys(doc.paths),
+    ...Object.keys(doc.layers),
+  ];
+}
+
 /** The point IDs an entity is built from, in a stable order. */
 export function entityPointIds(entity: Entity): readonly Id[] {
   switch (entity.kind) {

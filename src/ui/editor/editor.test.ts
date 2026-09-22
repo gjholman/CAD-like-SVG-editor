@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEmptyDocument, createIdGenerator, validate } from '../../core/model';
+import { createEmptyDocument, createIdGenerator, documentIds, validate } from '../../core/model';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
 import { createEditor, type Editor } from './editor';
 
@@ -374,5 +374,159 @@ describe('lifecycle', () => {
     expect(Object.keys(editor.getDocument().entities)).toHaveLength(0);
 
     editor = createEditor({ root: stage }); // so afterEach has something to destroy
+  });
+});
+
+describe('opening a document', () => {
+  it('draws with fresh ids instead of overwriting the loaded sketch', () => {
+    // The generator used to keep counting from wherever the previous sketch
+    // left it, so the first point drawn after opening a file was minted as an
+    // id the file already used. Edits are keyed by id, so that did not fail
+    // loudly — it replaced a corner of the loaded rectangle, in place.
+    start();
+    const loaded = rectangleFixture().doc;
+    editor.load(loaded);
+
+    const before = documentIds(loaded);
+    editor.setTool('line');
+    click(600, 600);
+    click(700, 600);
+
+    const after = editor.getDocument();
+    // Every id the file had is still there, and nothing was quietly replaced.
+    for (const id of before) expect(documentIds(after)).toContain(id);
+    expect(Object.keys(after.points)).toHaveLength(6);
+    expect(Object.keys(after.entities)).toHaveLength(5);
+    expect(validate(after)).toEqual([]);
+  });
+
+  it('starts past the ids of a document handed in at construction', () => {
+    // Same bug, one step earlier: a document passed to `createEditor` is as
+    // much a loaded sketch as one opened from a file.
+    const loaded = rectangleFixture().doc;
+    editor = createEditor({ root: stage, document: loaded });
+    editor.setTool('line');
+    click(600, 600);
+    click(700, 600);
+
+    const after = editor.getDocument();
+    for (const id of documentIds(loaded)) expect(documentIds(after)).toContain(id);
+    expect(validate(after)).toEqual([]);
+  });
+});
+
+describe('keyboard shortcuts and text fields', () => {
+  /** A key event as if typed into a panel input, not the canvas. */
+  function typeInto(element: Element, k: string, modifiers: Partial<KeyboardEventInit> = {}): void {
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...modifiers }));
+  }
+
+  let field: HTMLInputElement;
+  let fixture: ReturnType<typeof rectangleFixture>;
+
+  beforeEach(() => {
+    fixture = rectangleFixture();
+    start(fixture.doc);
+    field = document.createElement('input');
+    document.body.append(field);
+  });
+
+  it('leaves the sketch alone when Backspace edits a dimension field', () => {
+    // The handler is on the document so shortcuts work wherever focus is —
+    // which means it also hears every keystroke typed into the panel's
+    // dimension inputs. Backspace there deleted the selected geometry.
+    editor.setSelection([fixture.lines[0]]);
+    typeInto(field, 'Backspace');
+    expect(Object.keys(editor.getDocument().entities)).toHaveLength(4);
+  });
+
+  it('does not switch tools on letters typed into a field', () => {
+    editor.setTool('select');
+    typeInto(field, 'l');
+    typeInto(field, 'a');
+    expect(editor.getTool()).toBe('select');
+  });
+
+  it('does not add a dimension on a typed d', () => {
+    const before = Object.keys(editor.getDocument().constraints).length;
+    editor.setSelection([fixture.corners[1], fixture.corners[2]]);
+    // The same selection and key from the canvas does add one, so the
+    // assertion below is about where the keystroke came from, not about the
+    // command being unavailable.
+    typeInto(field, 'd');
+    expect(Object.keys(editor.getDocument().constraints)).toHaveLength(before);
+    typeInto(stage, 'd');
+    expect(Object.keys(editor.getDocument().constraints)).toHaveLength(before + 1);
+  });
+
+  it('still takes the shortcut when the key comes from the canvas', () => {
+    editor.setTool('select');
+    typeInto(stage, 'l');
+    expect(editor.getTool()).toBe('line');
+  });
+
+  it('leaves undo to the field itself, and to the editor elsewhere', () => {
+    // Ctrl+Z in a text field is the field's own undo — the browser handles
+    // it, and the editor must not undo the sketch behind it at the same time.
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(100, 0);
+    typeInto(field, 'z', { ctrlKey: true });
+    expect(Object.keys(editor.getDocument().entities)).toHaveLength(1);
+
+    typeInto(stage, 'z', { ctrlKey: true });
+    expect(Object.keys(editor.getDocument().entities)).toHaveLength(0);
+  });
+});
+
+describe('drag solving', () => {
+  it('redraws once per position, not once per pointer move', () => {
+    // A pinned solve runs whether or not the document changed, so with
+    // snapping on, every pixel of cursor travel inside one grid cell used to
+    // cost a full solve and redraw.
+    let draws = 0;
+    editor = createEditor({
+      root: stage,
+      document: rectangleFixture().doc,
+      nextId: createIdGenerator(),
+      size: () => {
+        draws += 1;
+        return { width: 800, height: 600 };
+      },
+      snapToGrid: true,
+      gridSpacing: 50,
+    });
+
+    pointer('pointerdown', 480, 240);
+    const atFirst = draws;
+    // Four moves, all snapping to the same grid intersection.
+    pointer('pointermove', 470, 250);
+    pointer('pointermove', 472, 248);
+    pointer('pointermove', 468, 252);
+    pointer('pointermove', 471, 249);
+    const afterSame = draws;
+    // One that lands on the next intersection along.
+    pointer('pointermove', 420, 250);
+    pointer('pointerup', 420, 250);
+
+    expect(afterSame - atFirst).toBe(1);
+    expect(draws - afterSame).toBe(1);
+  });
+
+  it('does not let the cursor pin change the sketch\'s status', () => {
+    // The drag displays the solve computed with the point pinned. That is
+    // only safe because a pin is a pull toward the cursor rather than a
+    // constraint: it must not make an under-defined sketch look defined.
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(100, 0);
+    editor.setTool('select');
+    expect(editor.getResult().status).toBe('under-defined');
+
+    drag([100, 0], [140, 40]);
+    expect(editor.getResult().status).toBe('under-defined');
+    expect(editor.getResult().dof).toBe(4);
   });
 });

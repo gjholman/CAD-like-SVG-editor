@@ -23,8 +23,9 @@ import {
   closePath,
   compose,
   createEmptyDocument,
-  createIdGenerator,
+  documentIds,
   extendPath,
+  generatorPast,
   pruneOrphanPoints,
   removeConstraint,
   removeEntity,
@@ -114,6 +115,11 @@ export interface EditorOptions {
   readonly document?: SketchDocument;
   /** Where key handlers attach. Defaults to the root's owner document. */
   readonly keyboardTarget?: EventTarget;
+  /**
+   * Where new ids come from. Injected in tests for predictable ids. Opening a
+   * file replaces it with one that starts past the loaded document's ids, so
+   * an injected generator does not survive a `load`.
+   */
   readonly nextId?: IdGenerator;
   /** Canvas size, for `zoomToFit` and for how much grid to draw. */
   readonly size?: () => { width: number; height: number };
@@ -187,7 +193,8 @@ interface DragState {
   readonly pointId: Id;
   /** One token for the whole gesture, so the drag is a single undo step. */
   readonly gesture: string;
-  moved: boolean;
+  /** Where the last move solved to, so a repeat of it can be skipped. */
+  lastTarget: Point2 | undefined;
 }
 
 interface PanState {
@@ -198,9 +205,12 @@ interface PanState {
 export function createEditor(options: EditorOptions): Editor {
   const root = options.root;
   const keyboardTarget = options.keyboardTarget ?? root.ownerDocument ?? undefined;
-  const nextId = options.nextId ?? createIdGenerator();
+  const initialDocument = options.document ?? createEmptyDocument();
+  // Past the starting document's ids, not from zero: a document handed in at
+  // construction is as much a loaded sketch as one opened from a file.
+  let nextId = options.nextId ?? generatorPast(documentIds(initialDocument));
 
-  let history = createHistory(options.document ?? createEmptyDocument());
+  let history = createHistory(initialDocument);
   let viewport: Viewport = IDENTITY_VIEWPORT;
   let tool: ToolName = 'select';
   let showGrid = options.showGrid ?? true;
@@ -355,7 +365,11 @@ export function createEditor(options: EditorOptions): Editor {
     );
 
     if (history === before) return;
-    result = solved !== undefined && options.pinned === undefined ? solved : solve(current(history));
+    // The solve computed inside the transaction is the one to display, pinned
+    // or not: pins are a pull toward the cursor, not constraints, so they
+    // change no status and re-solving would only cost a second solve on every
+    // single pointer move of a drag.
+    result = solved ?? solve(current(history));
     draw();
   }
 
@@ -425,7 +439,7 @@ export function createEditor(options: EditorOptions): Editor {
     // builds the pair a relation needs, and it must not move anything.
     if (hit.kind === 'point' && !additive) {
       gestureCounter += 1;
-      drag = { pointId: hit.id, gesture: `drag-${gestureCounter}`, moved: false };
+      drag = { pointId: hit.id, gesture: `drag-${gestureCounter}`, lastTarget: undefined };
     }
     draw();
   }
@@ -451,11 +465,16 @@ export function createEditor(options: EditorOptions): Editor {
       // A drag ignores the point under the cursor (it is the one being moved),
       // so snapping applies whenever it is on.
       const target = snapping ? snapToGrid(at, gridSpacing) : at;
+      // Snapping makes most moves land on the same world position as the last
+      // one, and a pinned solve runs whether or not the document changed, so
+      // without this every pixel of cursor travel costs a full solve.
+      const last = dragged.lastTarget;
+      if (last !== undefined && last.x === target.x && last.y === target.y) return;
+      dragged.lastTarget = target;
       apply((doc) => doc, 'Move point', {
         gesture: dragged.gesture,
         pinned: { [dragged.pointId]: target },
       });
-      dragged.moved = true;
       return;
     }
 
@@ -612,12 +631,16 @@ export function createEditor(options: EditorOptions): Editor {
     // consistent rather than being pulled straight by the implicit constraint.
     const endAt = arcPoint(centre, radius, angleOf(centre, at));
 
-    const endId = existing !== undefined && existing !== arcStart ? existing : nextId('p');
+    // Reuse a clicked point only if it can be an end: the start (a zero sweep)
+    // and the centre (a zero radius, which leaves the arc's implicit radius
+    // constraint unsatisfiable) both describe something that is not an arc.
+    const reusable = existing !== undefined && existing !== arcStart && existing !== arcCentre;
+    const endId = reusable ? existing : nextId('p');
     const arcId = nextId('arc');
 
     apply(
       compose(
-        ...(endId === existing ? [] : [addPoint(endId, endAt.x, endAt.y)]),
+        ...(reusable ? [] : [addPoint(endId, endAt.x, endAt.y)]),
         addArc(arcId, arcCentre, arcStart, endId, layer, arcSweep > 0),
       ),
       'Draw arc',
@@ -651,9 +674,29 @@ export function createEditor(options: EditorOptions): Editor {
     draw();
   }
 
+  /**
+   * Is the event coming from somewhere the user is typing?
+   *
+   * The key handler is on the document so shortcuts work wherever the focus
+   * is, which means it also sees every keystroke typed into the panel's
+   * dimension fields — where `Backspace` deleting the selected geometry and
+   * `d` adding a dimension are the last things anyone wants.
+   */
+  function isTyping(target: EventTarget | null): boolean {
+    if (target === null || !(typeof (target as Element).tagName === 'string')) return false;
+    const element = target as HTMLElement;
+    if (element.isContentEditable) return true;
+    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName);
+  }
+
   function onKeyDown(event: Event): void {
     const key = event as KeyboardEvent;
     const accel = key.metaKey || key.ctrlKey;
+
+    // Every key, accelerators included: Ctrl+Z in a text field is that
+    // field's own undo, and undoing the sketch behind it as well would be
+    // two undos for one keystroke.
+    if (isTyping(event.target)) return;
 
     if (accel && key.key.toLowerCase() === 'z') {
       event.preventDefault();
@@ -811,6 +854,11 @@ export function createEditor(options: EditorOptions): Editor {
     canUndo: () => canUndo(history),
     canRedo: () => canRedo(history),
     load(doc) {
+      // Before anything else: a generator still counting from the *previous*
+      // sketch mints ids the new one already uses, and since every edit is
+      // keyed by id, the next point drawn replaces a loaded one instead of
+      // colliding loudly.
+      nextId = generatorPast(documentIds(doc));
       history = createHistory(doc);
       endChain();
       selection = [];

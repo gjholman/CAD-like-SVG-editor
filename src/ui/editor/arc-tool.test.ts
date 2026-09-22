@@ -107,6 +107,26 @@ describe('the arc tool', () => {
     expect(Object.keys(editor.getDocument().entities)).toHaveLength(0);
   });
 
+  it('does not reuse the centre as the end point', () => {
+    // Clicking back on the centre to finish reused its id, which made the
+    // arc's end its own centre: radius zero at one end and the real radius
+    // at the other, so its implicit radius constraint could never hold and
+    // the sketch reported unsolved. The click lands a new point instead.
+    editor.setTool('arc');
+    click(0, 0);
+    click(100, 0);
+    move(71, 71);
+    move(0, 100);
+    click(0, 0); // back on the centre
+
+    const arc = theArc();
+    expect(arc).not.toBeUndefined();
+    expect(arc.end).not.toBe(arc.center);
+    expect(arc.end).not.toBe(arc.start);
+    expect(validate(editor.getDocument())).toEqual([]);
+    expect(editor.getResult().converged).toBe(true);
+  });
+
   it('refuses an arc with no sweep', () => {
     editor.setTool('arc');
     click(0, 0);

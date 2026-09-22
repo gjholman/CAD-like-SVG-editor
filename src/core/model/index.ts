@@ -1,9 +1,10 @@
-export { createIdGenerator, type Id, type IdGenerator } from './ids';
+export { createIdGenerator, generatorPast, highestIdCounter, type Id, type IdGenerator } from './ids';
 export {
   DOCUMENT_VERSION,
   createEmptyDocument,
   arcRadius,
   constraintRefs,
+  documentIds,
   entityPointIds,
   type ArcEntity,
   type CircleEntity,
