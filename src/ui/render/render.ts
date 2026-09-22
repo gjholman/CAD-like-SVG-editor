@@ -46,6 +46,11 @@ export interface RenderOptions {
   /** The drawing grid. Omitted means no grid. */
   readonly grid?: GridOptions;
   /**
+   * Relations a drawing tool is about to add, shown next to the cursor. The
+   * user needs to see the relation *before* the click commits it.
+   */
+  readonly hints?: { readonly at: Point2; readonly icons: readonly string[] };
+  /**
    * Status and solved geometry. Without it the document's own stored values
    * are drawn and everything renders as under defined, which is the honest
    * reading: nothing has told us otherwise.
@@ -116,6 +121,9 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
   }
   view.append(pointsGroup(doc, positions, viewport, result, overDefined, selection));
   if (options.preview !== undefined) view.append(previewLine(options.preview));
+  if (options.hints !== undefined && options.hints.icons.length > 0) {
+    view.append(hintGlyphs(options.hints, viewport));
+  }
   root.append(view);
 }
 
@@ -373,6 +381,37 @@ export function arcPathData(shape: ArcShape): string {
     `M${trim(start.x)} ${trim(start.y)}` +
     `A${r} ${r} 0 ${largeArc} ${sweepFlag} ${trim(end.x)} ${trim(end.y)}`
   );
+}
+
+/**
+ * Relation glyphs beside the cursor, in the mockup's boxed style.
+ *
+ * Sized and offset in screen units divided by the zoom, so they stay a
+ * constant size and a constant distance from the cursor at any scale.
+ */
+function hintGlyphs(
+  hints: { at: Point2; icons: readonly string[] },
+  viewport: Viewport,
+): Element {
+  const group = element('g', { class: 'sketch-hints' });
+  const box = 16 / viewport.scale;
+  const gap = 4 / viewport.scale;
+  // Up and to the right of the cursor, clear of the crosshair.
+  let x = hints.at.x + 14 / viewport.scale;
+  const y = hints.at.y - box - 10 / viewport.scale;
+
+  for (const icon of hints.icons) {
+    const glyph = element('g', { class: 'hint-glyph', transform: `translate(${trim(x)} ${trim(y)})` });
+    glyph.append(
+      element('rect', { width: box, height: box, rx: 3 / viewport.scale }),
+      // The icon comes from the page's sprite; absent, the box still reads.
+      element('use', { href: icon, x: box * 0.15, y: box * 0.15, width: box * 0.7, height: box * 0.7 }),
+    );
+    group.append(glyph);
+    x += box + gap;
+  }
+
+  return group;
 }
 
 function previewLine(preview: Preview): Element {

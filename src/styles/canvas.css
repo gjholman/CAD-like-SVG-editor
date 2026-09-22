@@ -129,3 +129,21 @@
 .sketch-stage .grid-minor { stroke: var(--grid-minor); }
 .sketch-stage .grid-major { stroke: var(--grid-major); }
 .sketch-stage .grid-origin { stroke: var(--grid-origin); }
+
+/* Inference hints --------------------------------------------------------
+   The relation a click is about to add, shown before it lands. Boxed like the
+   mockup's relation glyphs so it reads as a marker, not as geometry. */
+.sketch-stage .hint-glyph rect {
+  fill: #fff;
+  stroke: #69737d;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.sketch-stage .hint-glyph use {
+  fill: none;
+  stroke: #2f6fde;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

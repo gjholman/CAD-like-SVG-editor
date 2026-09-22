@@ -23,9 +23,10 @@ if (stage === null) throw new Error('index.html is missing its canvas');
 
 const editor: Editor = createEditor({
   root: stage,
-  // The HUD shows both on, so the app opts in to snapping.
+  // The HUD shows these on, so the app opts in to them.
   snapToGrid: true,
   showGrid: true,
+  inferRelations: true,
 });
 
 const q = <T extends Element>(selector: string) => document.querySelector<T>(selector);
@@ -41,7 +42,7 @@ const redoButton = q<HTMLButtonElement>('[data-action="redo"]');
 
 const HINTS: Record<ToolName, string> = {
   select: 'Click to select, shift-click to add. Drag a point to move it. Middle-drag to pan, wheel to zoom.',
-  line: 'Click to place points. Click an existing point to join to it, or the first point to close the shape.',
+  line: 'Click to place points. Near-level and near-plumb segments pick up a relation; click the first point to close the shape.',
   arc: 'Click the centre, then the start, then sweep round to the end.',
 };
 
@@ -261,12 +262,15 @@ function syncChrome(): void {
   if (selSub !== null) selSub.textContent = selected.sub;
 
   for (const button of hudButtons) {
+    const which = button.dataset['hud'];
     const on =
-      button.dataset['hud'] === 'grid'
+      which === 'grid'
         ? editor.isGridVisible()
-        : button.dataset['hud'] === 'snap'
+        : which === 'snap'
           ? editor.isSnapping()
-          : editor.areDimensionsVisible();
+          : which === 'infer'
+            ? editor.isInferring()
+            : editor.areDimensionsVisible();
     button.classList.toggle('on', on);
     button.setAttribute('aria-pressed', String(on));
   }
@@ -323,6 +327,7 @@ for (const button of hudButtons) {
     const which = button.dataset['hud'];
     if (which === 'grid') editor.setGridVisible(!editor.isGridVisible());
     else if (which === 'snap') editor.setSnapping(!editor.isSnapping());
+    else if (which === 'infer') editor.setInferring(!editor.isInferring());
     else editor.setDimensionsVisible(!editor.areDimensionsVisible());
     syncChrome();
   });

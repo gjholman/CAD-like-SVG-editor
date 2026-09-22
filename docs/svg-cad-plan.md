@@ -366,6 +366,8 @@ Mitigating B's sync risk:
 - **Grid spacing adapts through a 1-2-5 ladder** rather than being fixed, so lines stay a usable distance apart on screen at any zoom while every spacing remains a round number.
 - **Snapping never overrides an existing point**, and is opt-in at the editor API so callers do not inherit a change to where their clicks land.
 - **Deleting a point cascades** to the entities that referenced it and the constraints that named it: anything else would leave a dangling reference that `validate` rejects.
+- **Inference moves the point as well as adding the relation.** Adding the relation alone leaves a kink the next solve pulls out, which reads as the line jumping; moving alone gives a sketch that looks right and falls apart when anything moves.
+- **Coincident is not inferred**, because reusing a clicked point already shares it, which is the stronger statement. A joined point is never nudged onto an axis, since that would move the geometry it is shared with.
 - **Arcs are stored as three points** (centre, start, end) plus a direction flag, not as centre/radius/angles. Radius is derived, endpoints are ordinary points that lines and arcs can share, and the solver adds one implicit constraint per arc (the endpoints are equidistant from the centre) so the DOF still come to 5, as the DOF table says.
 
 ---
@@ -390,3 +392,4 @@ Mitigating B's sync risk:
 - 2026-09-21: Step 9 (arcs in the UI and export) built: arc rendering, rim hit testing within the sweep, a centrepoint arc tool that takes its direction from the traced sweep, and `A` commands on export. Shared geometry moved to `core/geometry.ts`, restoring the `ui -> io -> core` dependency rule.
 
 - 2026-09-22: Chrome rebuilt on the mockup (icon tool rail, panels, view HUD, status bar); added an adaptive drawing grid with snapping, and delete.
+- 2026-09-22: Step 12 (inference while drawing) built: horizontal and vertical inferred as you draw, with the point moved onto the axis and a hint shown before the click commits. Tangent waits for the tangent constraint in Step 10.

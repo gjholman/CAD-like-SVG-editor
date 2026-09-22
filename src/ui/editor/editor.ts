@@ -17,6 +17,7 @@
  */
 import {
   addArc,
+  addConstraint,
   addLine,
   addPoint,
   closePath,
@@ -29,6 +30,7 @@ import {
   removeEntity,
   removePoint,
   startPath,
+  type Constraint,
   type Id,
   type IdGenerator,
   type SketchDocument,
@@ -71,6 +73,7 @@ import {
   type RelationKind,
 } from './commands';
 import { hitTest, type Hit } from './hit-test';
+import { inferSegment, relationIcon, type InferredRelation } from './inference';
 
 export type ToolName = 'select' | 'line' | 'arc';
 
@@ -113,6 +116,12 @@ export interface EditorOptions {
    * caller inheriting it.
    */
   readonly snapToGrid?: boolean;
+  /**
+   * Infer relations while drawing. Default **false** for the same reason as
+   * snapping: it changes both where a point lands and what the document ends
+   * up containing.
+   */
+  readonly inferRelations?: boolean;
 }
 
 export interface Editor {
@@ -137,6 +146,10 @@ export interface Editor {
   setGridVisible(visible: boolean): void;
   isSnapping(): boolean;
   setSnapping(snapping: boolean): void;
+  isInferring(): boolean;
+  setInferring(inferring: boolean): void;
+  /** Relations the next click would add, for showing in the chrome. */
+  getInferred(): readonly InferredRelation[];
   areDimensionsVisible(): boolean;
   setDimensionsVisible(visible: boolean): void;
   getGridSpacing(): number;
@@ -180,6 +193,9 @@ export function createEditor(options: EditorOptions): Editor {
   let showGrid = options.showGrid ?? true;
   let snapping = options.snapToGrid ?? false;
   let showDimensions = options.showDimensions ?? true;
+  let inferring = options.inferRelations ?? false;
+  /** What the pending click would add, recomputed on every move. */
+  let inferred: InferredRelation[] = [];
   const gridSpacing = options.gridSpacing ?? 10;
   let selection: Id[] = [];
   let result: SolveResult = solve(current(history));
@@ -242,18 +258,51 @@ export function createEditor(options: EditorOptions): Editor {
       selection,
       preview,
       showDimensions,
+      hints:
+        cursor === undefined || inferred.length === 0
+          ? undefined
+          : { at: cursor, icons: inferred.map(relationIcon) },
       grid: showGrid ? { spacing: gridSpacing, size: options.size?.() ?? measure(root) } : undefined,
     });
   }
 
   /**
-   * Where a click should actually land. Snapping never overrides an existing
-   * point: joining to real geometry matters more than landing on a round
-   * number, and that is what makes shared points work.
+   * Where a *new* point should land.
+   *
+   * Snapping cannot override an existing point, because a click that hits one
+   * reuses its id and never creates a point at all — the callers below decide
+   * that, so there is no guard for it here. Joining to real geometry matters
+   * more than landing on a round number, and shared points are what keep the
+   * topology explicit.
    */
-  function place(at: Point2, hit: Hit | undefined): Point2 {
-    if (hit?.kind === 'point') return at;
+  function place(at: Point2): Point2 {
     return snapping ? snapToGrid(at, gridSpacing) : at;
+  }
+
+  /**
+   * What drawing from `anchor` to the cursor would infer, after snapping.
+   *
+   * Returns the adjusted point as well as the relations: inference moves the
+   * point onto the axis so the geometry is right at the moment of the click,
+   * rather than leaving a kink for the solver to pull out.
+   */
+  function inferFrom(anchor: Id | undefined, at: Point2, hit: Hit | undefined) {
+    const placed = place(at);
+    const from = pointAt(anchor);
+    if (!inferring || from === undefined) return { point: placed, relations: [] as InferredRelation[] };
+
+    const result = inferSegment(from, placed, {
+      scale: viewport.scale,
+      joined: hit?.kind === 'point',
+    });
+    return { point: result.point, relations: [...result.relations] };
+  }
+
+  /** Constraints for the relations a click just committed. */
+  function inferredEdits(from: Id, to: Id, relations: readonly InferredRelation[]) {
+    return relations.map((kind) =>
+      addConstraint({ id: nextId('c'), kind, p1: from, p2: to } as Constraint),
+    );
   }
 
   interface ApplyOptions {
@@ -397,7 +446,10 @@ export function createEditor(options: EditorOptions): Editor {
       return;
     }
 
-    if (tool === 'line' && chainPoint !== undefined) draw();
+    if (tool === 'line') {
+      inferred = chainPoint === undefined ? [] : inferFrom(chainPoint, at, pick(at)).relations;
+      if (chainPoint !== undefined) draw();
+    }
     if (tool === 'arc' && arcCentre !== undefined) {
       if (arcStart !== undefined) trackArcSweep(at);
       draw();
@@ -422,7 +474,8 @@ export function createEditor(options: EditorOptions): Editor {
     // Clicking an existing point reuses it, so the two segments genuinely
     // share a point rather than merely touching.
     const pointId = hit?.kind === 'point' ? hit.id : nextId('p');
-    const where = place(at, hit);
+    const guess = inferFrom(chainPoint, at, hit);
+    const where = guess.point;
     const createPoint = hit?.kind === 'point' ? undefined : addPoint(pointId, where.x, where.y);
 
     if (chainPoint === undefined) {
@@ -453,9 +506,14 @@ export function createEditor(options: EditorOptions): Editor {
         addLine(lineId, from, pointId, layer),
         continuing === undefined ? startPath(pathId, lineId) : extendPath(pathId, lineId),
         ...(closes ? [closePath(pathId)] : []),
+        // The relations go in the same transaction as the geometry, so the
+        // segment and what it means are one undo step.
+        ...inferredEdits(from, pointId, guess.relations),
       ),
       closes ? 'Close shape' : 'Draw line',
     );
+
+    inferred = [];
 
     if (closes) {
       endChain();
@@ -510,7 +568,7 @@ export function createEditor(options: EditorOptions): Editor {
 
     if (arcCentre === undefined) {
       const id = existing ?? nextId('p');
-      const where = place(at, hit);
+      const where = place(at);
       if (existing === undefined) apply(addPoint(id, where.x, where.y), 'Arc centre');
       arcCentre = id;
       draw();
@@ -520,7 +578,7 @@ export function createEditor(options: EditorOptions): Editor {
     if (arcStart === undefined) {
       if (existing === arcCentre) return; // a zero radius is not an arc
       const id = existing ?? nextId('p');
-      const where = place(at, hit);
+      const where = place(at);
       if (existing === undefined) apply(addPoint(id, where.x, where.y), 'Arc start');
       arcStart = id;
       arcSweep = 0;
@@ -690,6 +748,14 @@ export function createEditor(options: EditorOptions): Editor {
     setSnapping(next) {
       snapping = next;
     },
+    isInferring: () => inferring,
+    setInferring(next) {
+      if (next === inferring) return;
+      inferring = next;
+      inferred = [];
+      draw();
+    },
+    getInferred: () => [...inferred],
     areDimensionsVisible: () => showDimensions,
     setDimensionsVisible(visible) {
       if (visible === showDimensions) return;

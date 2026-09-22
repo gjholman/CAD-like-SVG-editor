@@ -3,9 +3,10 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Steps 8 and 9
-(arcs) done, the chrome rebuilt, grid and delete in. Step 12 (inference) next;
-Steps 10 and 11 (relations, angle dimensions) still to come.
+**Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Steps 8, 9 and
+12 done (arcs, inference), plus the chrome rebuild, grid and delete. Steps 10,
+11 and 13 still to come (the rest of the relations, angle and radius
+dimensions, the relations panel's remaining work).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -566,12 +567,43 @@ Settled while building it:
   (non-driving) dimensions.
 - **Done when:** an angled line can be dimensioned and driven by its angle.
 
-### Step 12: Inference while drawing
+### Step 12: Inference while drawing — done
 
 - **Adds:** relation inference as you draw (horizontal, vertical, coincident,
   tangent) with on-canvas hints, applied on commit and reviewable.
 - **Done when:** drawing a roughly horizontal line picks up a horizontal
   relation, and the hint is visible before the click lands.
+
+Delivered as `src/ui/editor/inference.ts` (pure geometry) plus hint glyphs on
+the canvas and an Infer toggle in the HUD. **Tangent is not inferred**: there
+is no tangent constraint to infer until Step 10, and inferring a relation the
+model cannot express would be worse than not inferring it.
+
+Settled while building it:
+
+- **Inference moves the point as well as recording the relation.** Recording
+  only would leave a visible kink for the solver to pull out on the next
+  solve, which the user sees as the line jumping after the click. Moving only
+  is the mistake the plan warns about: the sketch looks right and falls apart
+  the moment anything moves.
+- **Coincident is not inferred separately**, because the line tool already
+  reuses a clicked point. Sharing the point *is* the coincidence, and it is
+  stronger than a constraint between two points in the same place.
+- **A joined point is left exactly where the geometry is.** Nudging a shared
+  point onto an axis would move the geometry it is shared with, so the join
+  wins and nothing is inferred.
+- **Short segments infer nothing.** Below about 12 screen px the angle is
+  mostly cursor noise, and the guard is measured on screen rather than in
+  world units so it behaves the same at any zoom.
+- **Inference and snapping compose.** Snapping decides where the point lands
+  on the grid; inference then aligns it to the axis (which keeps it on the
+  grid, since the anchor is on the grid too) and records the reason.
+
+A mutation revealed that a guard in the editor's `place()` was unobservable:
+a click that hits a point reuses its id and never creates a point, so the
+position `place` returned was discarded. The dead branch is gone and the real
+behaviour — an off-grid point is still joined to, not snapped past — now has a
+test of its own.
 
 ### Step 13: Relations panel
 

@@ -96,18 +96,25 @@ describe('snapping to the grid', () => {
     expect(points[1]).toMatchObject({ x: 400, y: 150 });
   });
 
-  it('never overrides an existing point', () => {
-    // Joining to real geometry matters more than landing on a round number.
-    start({ snapToGrid: true });
+  it('reuses an off-grid point rather than snapping past it', () => {
+    // A point placed before snapping was on sits off the grid. Clicking it
+    // must still join to it: joining to real geometry matters more than
+    // landing on a round number.
+    start({ snapToGrid: false });
     editor.setTool('line');
     click(203, 147);
     click(398, 152);
     key('Escape');
+    expect(Object.values(editor.getDocument().points)[0]).toMatchObject({ x: 203, y: 147 });
 
-    click(202, 151); // near the first point, which should be reused
+    editor.setSnapping(true);
+    click(203, 147); // straight onto the off-grid point
     click(300, 400);
 
-    expect(Object.keys(editor.getDocument().points)).toHaveLength(3);
+    const points = Object.values(editor.getDocument().points);
+    expect(points).toHaveLength(3);
+    // Unmoved: the join reused it, snapping never touched it.
+    expect(points[0]).toMatchObject({ x: 203, y: 147 });
   });
 
   it('snaps a dragged point', () => {
