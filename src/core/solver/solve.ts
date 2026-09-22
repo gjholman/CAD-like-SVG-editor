@@ -20,7 +20,16 @@
  *   red    over-defined    redundant or conflicting constraints
  *   yellow unsolved        no solution found from this starting point
  */
-import { matrixFromRows, nullspace, rank, solveLeastSquares, type Matrix } from './linalg';
+import {
+  matrixFromRows,
+  nonZeroRows,
+  nullspace,
+  rank,
+  solveLeastSquares,
+  toRows,
+  transpose,
+  type Matrix,
+} from './linalg';
 import { arcRows, assemble, constraintRows, pinRows, worstResidual, type ConstraintRow } from './residuals';
 import { entityVariables, initialVector, mapVariables, type VariableMap } from './variables';
 import type { Id, SketchDocument } from '../model';
@@ -79,6 +88,8 @@ const MAX_DAMPING_ATTEMPTS = 12;
 const DRAG_PULL_ITERATIONS = 25;
 /** A nullspace component below this counts as "cannot move". */
 const FREEDOM_THRESHOLD = 1e-7;
+/** A row's share in a dependency below this counts as not taking part. */
+const DEPENDENCY_THRESHOLD = 1e-7;
 
 export function solve(doc: SketchDocument, options: SolveOptions = {}): SolveResult {
   const tolerance = options.tolerance ?? DEFAULT_TOLERANCE;
@@ -124,14 +135,17 @@ export function solve(doc: SketchDocument, options: SolveOptions = {}): SolveRes
 
   const jacobianRank = rank(final.jacobian);
   const dof = variables.count - jacobianRank;
-  const independent = final.jacobian.rows === jacobianRank;
+  // Compare the rank against the rows that actually say something. Degenerate
+  // geometry produces deliberate rows of zeros (a point exactly on a circle's
+  // centre, an arc of no radius); counting those as constraints would report
+  // the sketch over defined with nothing to name and nothing to fix.
+  const speakingRows = nonZeroRows(final.jacobian);
+  const independent = speakingRows === jacobianRank;
   // Implicit arc rows are never reported: the user cannot delete one, so
   // naming it as a conflict would be advice they cannot act on.
   const conflicts = independent
     ? []
-    : findConflicts(final.owners, final.jacobian, jacobianRank, variables.count).filter((id) =>
-        Object.hasOwn(doc.constraints, id),
-      );
+    : findConflicts(final.owners, final.jacobian).filter((id) => Object.hasOwn(doc.constraints, id));
 
   const status: SketchStatus = !independent
     ? 'over-defined'
@@ -233,25 +247,53 @@ function dampedStep(
 }
 
 /**
- * Which constraints the redundancy lives in: a constraint is implicated when
- * dropping its rows leaves the rank unchanged, meaning the others already said
- * everything it says. A conflicting pair (two different lengths for one line)
- * implicates both, which is the honest answer — either could be the wrong one.
+ * Which constraints the redundancy lives in.
+ *
+ * A constraint is implicated when dropping its rows leaves the rank unchanged
+ * — the others already said everything it says. A conflicting pair (two
+ * different lengths for one line) implicates both, which is the honest answer
+ * since either could be the wrong one.
+ *
+ * Asking that question one constraint at a time costs a decomposition each,
+ * and an over-defined sketch re-solves on every pointer move during a drag, so
+ * a single degenerate arc used to make dragging freeze. One decomposition
+ * answers it for every row at once: a vector `v` with `vᵀJ = 0` *is* a linear
+ * dependency between rows, so row `i` takes part in one exactly when some such
+ * vector has a non-zero `i`th component — and those vectors are the nullspace
+ * of `Jᵀ`.
+ *
+ * Rows of zeros are dropped before asking. A zero row is trivially its own
+ * dependency (`eᵢᵀJ = 0` for free), so leaving it in blames whichever
+ * degenerate relation produced it for a redundancy it is not part of.
  */
-function findConflicts(owners: readonly Id[], jacobian: Matrix, fullRank: number, variableCount: number): Id[] {
-  const conflicts: Id[] = [];
-  for (const candidate of [...new Set(owners)]) {
-    const rows: number[][] = [];
-    for (const [i, owner] of owners.entries()) {
-      if (owner === candidate) continue;
-      const row: number[] = [];
-      for (let j = 0; j < variableCount; j += 1) row.push(jacobian.data[i * variableCount + j]!);
-      rows.push(row);
+function findConflicts(owners: readonly Id[], jacobian: Matrix): Id[] {
+  if (jacobian.rows === 0) return [];
+
+  // Only the rows that say something, with their owners carried alongside so
+  // the nullspace indices still name the right constraints.
+  const speaking: number[][] = [];
+  const speakingOwners: (Id | undefined)[] = [];
+  for (const [index, row] of toRows(jacobian).entries()) {
+    if (row.some((value) => value !== 0)) {
+      speaking.push(row);
+      speakingOwners.push(owners[index]);
     }
-    const remaining = rows.length === 0 ? 0 : rank(matrixFromRows(rows));
-    if (remaining === fullRank) conflicts.push(candidate);
   }
-  return conflicts;
+  if (speaking.length === 0) return [];
+
+  const dependencies = nullspace(transpose(matrixFromRows(speaking)));
+  if (dependencies.length === 0) return [];
+
+  const implicated = new Set<Id>();
+  for (const dependency of dependencies) {
+    for (const [row, weight] of dependency.entries()) {
+      if (Math.abs(weight) > DEPENDENCY_THRESHOLD) {
+        const owner = speakingOwners[row];
+        if (owner !== undefined) implicated.add(owner);
+      }
+    }
+  }
+  return [...implicated];
 }
 
 function readPositions(

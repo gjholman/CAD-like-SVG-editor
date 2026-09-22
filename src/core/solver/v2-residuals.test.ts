@@ -125,6 +125,37 @@ describe('row counts match the plan\'s DOF table', () => {
   });
 });
 
+/** Everything collapsed onto one spot: zero-length lines, zero-radius circles. */
+function degenerate(): SketchDocument {
+  return compose(
+    addPoint('a1', 0, 0),
+    addPoint('a2', 0, 0),
+    addPoint('b1', 0, 0),
+    addPoint('b2', 0, 0),
+    addPoint('ca', 0, 0),
+    addPoint('cb', 0, 0),
+    addPoint('as', 0, 0),
+    addLine('lineA', 'a1', 'a2', 'layer1'),
+    addLine('lineB', 'b1', 'b2', 'layer1'),
+    addEntity({ id: 'circA', kind: 'circle', center: 'ca', radius: 0, layer: 'layer1', construction: false }),
+    addEntity({ id: 'circB', kind: 'circle', center: 'cb', radius: 0, layer: 'layer1', construction: false }),
+    addArc('arcA', 'cb', 'as', 'b1', 'layer1'),
+  )(createEmptyDocument());
+}
+
+describe('degenerate geometry never reaches a divide by zero', () => {
+  // `div` throws on a zero divisor on purpose, so that a missing guard shows
+  // up as a crash rather than as a constraint that quietly removes no
+  // freedom. That contract only holds if every residual checks its lengths
+  // first — this is the test that says they do.
+  it.each(CASES)('%s survives a fully collapsed sketch', (_name, constraint) => {
+    const doc = addConstraint(constraint)(degenerate());
+    const variables = mapVariables(doc);
+    const x = initialVector(doc, variables);
+    expect(() => constraintRows(constraint, doc, variables, x)).not.toThrow();
+  });
+});
+
 describe('nonsense combinations produce a harmless row', () => {
   const rowsFor = (constraint: Constraint) => {
     const doc = addConstraint(constraint)(sandbox());

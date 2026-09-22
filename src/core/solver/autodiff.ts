@@ -55,9 +55,19 @@ export function mul(a: Dual, b: Dual): Dual {
   return { value: a.value * b.value, grad: combine(a.grad, b.value, b.grad, a.value) };
 }
 
-/** d(a/b) = da/b − a·db/b² */
+/**
+ * d(a/b) = da/b − a·db/b²
+ *
+ * Throws on a zero divisor rather than returning zero. Returning zero would
+ * be indistinguishable from "this constraint is satisfied and constrains
+ * nothing", which is exactly the silent no-op this module exists to avoid.
+ * Both call sites (`unit` and `distanceToLine` in `v2-residuals.ts`) already
+ * check the length first, so reaching this is a missing guard.
+ */
 export function div(a: Dual, b: Dual): Dual {
-  if (b.value === 0) return constant(0);
+  if (b.value === 0) {
+    throw new Error('autodiff: divide by zero — the caller should have guarded the degenerate case');
+  }
   return {
     value: a.value / b.value,
     grad: combine(a.grad, 1 / b.value, b.grad, -a.value / (b.value * b.value)),

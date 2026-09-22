@@ -160,6 +160,40 @@ describe('solve: redundant and conflicting constraints', () => {
   it('leaves conflicts empty for a healthy sketch', () => {
     expect(solve(rectangleFixture().doc).conflicts).toEqual([]);
   });
+
+  it('ignores a row that carries no gradient at all', () => {
+    // Tangency between two lines is meaningless, so its residual row is all
+    // zeros on purpose. Counting it as a constraint made the arithmetic read
+    // "one more row than the rank" and call a perfectly healthy sketch over
+    // defined — with nothing the user could remove to fix it, because the
+    // row removes no freedom either.
+    const { doc, lines } = rectangleFixture(480, 240);
+    const nonsense: Constraint = { id: 'c-noop', kind: 'tangent', a: lines[0], b: lines[1] };
+    const result = solve(withConstraint(doc, nonsense));
+
+    expect(result.status).toBe('fully-defined');
+    expect(result.dof).toBe(0);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it('still blames a real duplicate when a no-op row is also present', () => {
+    // The zero row must not mask a genuine dependency sitting next to it.
+    const { doc, corners, lines, widthDimension } = rectangleFixture(480, 240);
+    const nonsense: Constraint = { id: 'c-noop', kind: 'tangent', a: lines[0], b: lines[1] };
+    const duplicate: Constraint = {
+      id: 'c-dup',
+      kind: 'horizontal-distance',
+      p1: corners[0],
+      p2: corners[1],
+      value: 480,
+    };
+    const result = solve(withConstraint(withConstraint(doc, nonsense), duplicate));
+
+    expect(result.status).toBe('over-defined');
+    expect(result.conflicts).toContain('c-dup');
+    expect(result.conflicts).toContain(widthDimension);
+    expect(result.conflicts).not.toContain('c-noop');
+  });
 });
 
 describe('solve: suspended constraints', () => {

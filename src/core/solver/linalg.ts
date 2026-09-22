@@ -58,6 +58,36 @@ export function toRows(matrix: Matrix): number[][] {
   return rows;
 }
 
+/** Aᵀ. Needed to ask questions about a matrix's *rows* via its columns. */
+export function transpose(matrix: Matrix): Matrix {
+  const result = createMatrix(matrix.cols, matrix.rows);
+  for (let i = 0; i < matrix.rows; i += 1) {
+    for (let j = 0; j < matrix.cols; j += 1) setAt(result, j, i, at(matrix, i, j));
+  }
+  return result;
+}
+
+/**
+ * How many rows carry any gradient at all.
+ *
+ * A row of zeros is a constraint that, at this configuration, says nothing —
+ * degenerate geometry produces them deliberately. Counting it as a constraint
+ * when comparing against the rank would report the sketch over defined for no
+ * reason the user can act on.
+ */
+export function nonZeroRows(matrix: Matrix, tolerance = 0): number {
+  let count = 0;
+  for (let i = 0; i < matrix.rows; i += 1) {
+    for (let j = 0; j < matrix.cols; j += 1) {
+      if (Math.abs(at(matrix, i, j)) > tolerance) {
+        count += 1;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
 /** A·v. Throws if the shapes disagree, which is always a programming error. */
 export function multiplyVector(matrix: Matrix, vector: readonly number[]): number[] {
   if (vector.length !== matrix.cols) {

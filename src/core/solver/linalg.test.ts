@@ -6,11 +6,13 @@ import {
   decomposeQr,
   matrixFromRows,
   multiplyVector,
+  nonZeroRows,
   nullspace,
   rank,
   setAt,
   solveLeastSquares,
   toRows,
+  transpose,
   type Matrix,
 } from './linalg';
 
@@ -329,5 +331,78 @@ describe('random matrices of known rank', () => {
         expect(solution[i], `seed ${seed}, entry ${i}`).toBeCloseTo(answer[i]!, 6);
       }
     }
+  });
+});
+
+describe('transpose', () => {
+  it('swaps rows and columns', () => {
+    const a = matrixFromRows([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    expect(toRows(transpose(a))).toEqual([
+      [1, 4],
+      [2, 5],
+      [3, 6],
+    ]);
+  });
+
+  it('is its own inverse', () => {
+    const rows = [
+      [1, -2, 0.5],
+      [0, 7, -3],
+    ];
+    expect(toRows(transpose(transpose(matrixFromRows(rows))))).toEqual(rows);
+  });
+
+  it('turns a row dependency into a nullspace vector', () => {
+    // This is exactly what `findConflicts` leans on: row 2 = row 0 + row 1,
+    // so (1, 1, -1) annihilates the transpose and names all three rows.
+    const a = matrixFromRows([
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ]);
+    const basis = nullspace(transpose(a));
+    expect(basis).toHaveLength(1);
+    expect(cosineWith(basis[0]!, [1, 1, -1])).toBeCloseTo(1, 10);
+  });
+
+  it('has an empty left nullspace when the rows are independent', () => {
+    expect(nullspace(transpose(matrixFromRows([[1, 0], [0, 1]])))).toEqual([]);
+  });
+});
+
+describe('nonZeroRows', () => {
+  it('counts only the rows that say something', () => {
+    const a = matrixFromRows([
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 0, 0],
+      [2, 0, -3],
+    ]);
+    expect(nonZeroRows(a)).toBe(2);
+    expect(a.rows).toBe(4);
+  });
+
+  it('is the row count when every row carries a gradient', () => {
+    const a = matrixFromRows([
+      [1, 0],
+      [0, -1],
+    ]);
+    expect(nonZeroRows(a)).toBe(a.rows);
+  });
+
+  it('is zero for an empty matrix', () => {
+    expect(nonZeroRows(createMatrix(0, 4))).toBe(0);
+  });
+
+  it('treats tiny entries as silence once a tolerance is given', () => {
+    const a = matrixFromRows([
+      [1e-14, -1e-15],
+      [0.5, 0],
+    ]);
+    expect(nonZeroRows(a)).toBe(2);
+    expect(nonZeroRows(a, 1e-12)).toBe(1);
   });
 });

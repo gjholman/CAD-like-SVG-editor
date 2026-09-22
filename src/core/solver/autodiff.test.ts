@@ -84,10 +84,13 @@ describe('degenerate cases', () => {
     expect(partialsOf(length)).toEqual([]);
   });
 
-  it('returns zero for a division by zero rather than infinity', () => {
-    const quotient = div(variable(0, 1), constant(0));
-    expect(quotient.value).toBe(0);
-    expect(partialsOf(quotient)).toEqual([]);
+  it('throws on a division by zero rather than inventing a value', () => {
+    // A quiet zero here would read downstream as "satisfied, and constrains
+    // nothing" — a constraint that silently removes no freedom, which is the
+    // hardest kind of bug to see in a sketch. Every caller guards the length
+    // first, so getting here means a guard is missing: say so loudly.
+    expect(() => div(variable(0, 1), constant(0))).toThrow(/divide by zero/);
+    expect(() => div(constant(0), variable(0, 0))).toThrow(/divide by zero/);
   });
 });
 
