@@ -81,13 +81,12 @@ describe('the line tool', () => {
     click(100, 80);
 
     const doc = editor.getDocument();
-    const [first, second] = Object.values(doc.entities);
+    const [first, second] = Object.values(doc.entities).filter((entity) => entity.kind === 'line');
     expect(Object.keys(doc.entities)).toHaveLength(2);
     expect(Object.keys(doc.points)).toHaveLength(3);
     // Sharing a point is what makes the join real, not merely coincident.
-    expect(first!.kind === 'line' && second!.kind === 'line' && first.p2).toBe(
-      second!.kind === 'line' ? second.p1 : undefined,
-    );
+    expect(first?.p2).toBe(second?.p1);
+    expect(first?.p2).not.toBeUndefined();
   });
 
   it('collects a chain into one path record', () => {
