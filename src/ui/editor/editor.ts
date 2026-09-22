@@ -625,16 +625,23 @@ export function createEditor(options: EditorOptions): Editor {
     if (centre === undefined || start === undefined || layer === undefined) return;
     if (Math.abs(arcSweep) < 1e-6) return; // no sweep yet, so no arc
 
+    // A click on the centre names no direction: the end angle is measured
+    // from the centre, and at the centre there is no angle. It used to build
+    // an arc anyway, with `atan2(0, 0)` landing the end back on the start —
+    // an arc of no extent, which renders as nothing at all and leaves an
+    // invisible entity in the document. Ignore the click; the tool stays
+    // armed for a real one.
+    if (existing === arcCentre || (at.x === centre.x && at.y === centre.y)) return;
+
     trackArcSweep(at);
     const radius = Math.hypot(start.x - centre.x, start.y - centre.y);
     // The end point sits on the arc's own circle, so the sketch starts
     // consistent rather than being pulled straight by the implicit constraint.
     const endAt = arcPoint(centre, radius, angleOf(centre, at));
 
-    // Reuse a clicked point only if it can be an end: the start (a zero sweep)
-    // and the centre (a zero radius, which leaves the arc's implicit radius
-    // constraint unsatisfiable) both describe something that is not an arc.
-    const reusable = existing !== undefined && existing !== arcStart && existing !== arcCentre;
+    // Reuse a clicked point only if it can be an end: landing back on the
+    // start is a zero sweep, which is not an arc.
+    const reusable = existing !== undefined && existing !== arcStart;
     const endId = reusable ? existing : nextId('p');
     const arcId = nextId('arc');
 

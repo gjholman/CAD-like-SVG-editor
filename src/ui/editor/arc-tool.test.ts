@@ -107,11 +107,13 @@ describe('the arc tool', () => {
     expect(Object.keys(editor.getDocument().entities)).toHaveLength(0);
   });
 
-  it('does not reuse the centre as the end point', () => {
-    // Clicking back on the centre to finish reused its id, which made the
-    // arc's end its own centre: radius zero at one end and the real radius
-    // at the other, so its implicit radius constraint could never hold and
-    // the sketch reported unsolved. The click lands a new point instead.
+  it('ignores a finishing click on the centre, and takes the next one', () => {
+    // The end angle is measured from the centre, so at the centre there is no
+    // angle: `atan2(0, 0)` put the end back on the start and built an arc of
+    // no extent, which renders as nothing and leaves an invisible entity in
+    // the document. (Reusing the centre's own id was worse still — radius
+    // zero at one end and the real radius at the other, so the arc's implicit
+    // radius constraint could never hold.)
     editor.setTool('arc');
     click(0, 0);
     click(100, 0);
@@ -119,6 +121,10 @@ describe('the arc tool', () => {
     move(0, 100);
     click(0, 0); // back on the centre
 
+    expect(Object.keys(editor.getDocument().entities)).toHaveLength(0);
+
+    // The arc is still in progress, so a real end still finishes it.
+    click(0, 100);
     const arc = theArc();
     expect(arc).not.toBeUndefined();
     expect(arc.end).not.toBe(arc.center);
