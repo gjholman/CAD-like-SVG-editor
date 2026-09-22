@@ -3,10 +3,34 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Phase 1 complete (Steps 0-7). Phase 2: Steps 8, 9, 10 and 12 done
-(arcs, the full relation set, inference), plus the chrome rebuild, grid and
-delete. Steps 11 and 13 remain (angle/radius/diameter dimensions, and the
-relations panel's last pieces).
+**Status** (2026-09-22): Phase 1 complete. Phase 2 has two steps left.
+
+| Step | | |
+|---|---|---|
+| 0 | Scaffold, tests, landing page | ✅ |
+| 1 | Document model and `validate` | ✅ |
+| 2 | History: dispatch, snapshots, undo/redo | ✅ |
+| 3a | Linear algebra: rank, nullspace, least squares | ✅ |
+| 3b | Solver v0: LM, DOF, definition status | ✅ |
+| 4 | Read-only renderer, pan and zoom | ✅ |
+| 5 | Editing v0: select, line, drag, undo | ✅ |
+| 6 | Constraints and dimensions UI | ✅ |
+| 7 | Native JSON save/load, SVG export | ✅ |
+| 8 | Arcs in the core | ✅ |
+| 9 | Arcs in the UI and export | ✅ |
+| 10 | The rest of the relation set | ✅ |
+| 11 | Angle, radius and diameter dimensions | ⬜ |
+| 12 | Inference while drawing | ✅ |
+| 13 | Relations panel: highlighting, cross-layer suspend | ◐ suspend and delete done |
+| — | Chrome rebuild, grid, snapping, delete (added out of order) | ✅ |
+
+**554 tests** across 27 files. `npm run typecheck`, `npm run test:run` and
+`npm run build` all clean, and CI runs the three on every push.
+
+Reading order for someone new: [`../README.md`](../README.md) for what it is,
+[`SOLVING.md`](SOLVING.md) for how the solver works and what the colours mean,
+[`svg-cad-plan.md`](svg-cad-plan.md) for the design intent and where the build
+differs from it, then this file for the order things were built in.
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -33,29 +57,32 @@ Steps 4 to 6 work from it.
 
 ```
 CAD-like-SVG-editor/
-├── index.html              the editor (Vite entry point)
+├── index.html              the editor (Vite entry point), with the icon sprite
 ├── about.html              landing page, links into the editor
-├── package.json
-├── tsconfig.json
-├── vite.config.ts          Vite + Vitest config
-├── README.md
+├── vite.config.ts          Vite + Vitest config, two page entries
 ├── docs/
-│   ├── svg-cad-plan.md     the plan and decisions
-│   └── EXECUTION.md        this file
+│   ├── svg-cad-plan.md     design intent, decisions, and where the build differs
+│   ├── EXECUTION.md        this file: the order things were built in
+│   ├── SOLVING.md          how solving works, in plain terms
+│   └── mockups/            ui-mockup-v1.html, the chrome's design source
 ├── src/
-│   ├── main.ts             entry: mounts the editor and wires the chrome
+│   ├── main.ts             mounts the editor and wires the chrome
 │   ├── landing.ts          entry for the landing page
 │   ├── styles/
+│   │   ├── app.css         editor chrome
+│   │   ├── canvas.css      the drawing itself: status colours, grid, dimensions
 │   │   └── landing.css
 │   ├── core/               pure logic, NO DOM
-│   │   ├── geometry.ts     bounds and arc maths shared by io and ui
-│   │   ├── model/          (Step 1) types + validate()
-│   │   ├── solver/         (Steps 3a/3b) linear algebra, constraints, solve()
-│   │   └── history/        (Step 2) dispatch, snapshots, undo/redo
+│   │   ├── geometry.ts     bounds and arc maths, shared by io and ui
+│   │   ├── model/          types, validate, edit helpers, ids
+│   │   ├── solver/         linalg, residuals, autodiff, solve
+│   │   └── history/        dispatch, snapshots, undo/redo
 │   ├── io/                 native JSON save/load, SVG export (import in Phase 4)
-│   └── ui/                 (Steps 4-6) rendering, tools, panels, shortcuts
+│   └── ui/
+│       ├── render/         canvas, viewport, grid, dimensions
+│       └── editor/         tools, hit testing, commands, inference
 └── tests/
-    └── fixtures/           sample SVGs and sketch JSON for tests
+    └── fixtures/           the rectangle, and a seeded random-edit generator
 ```
 
 ### Dependency rule

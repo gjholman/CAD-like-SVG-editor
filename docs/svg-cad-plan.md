@@ -1,7 +1,15 @@
 # Parametric SVG Sketcher — Planning Doc
 
-**Status:** Planning
-**Started:** 2026-09-20
+**Status:** Phase 1 complete. Phase 2 all but two steps.
+**Started:** 2026-09-20 · **Last reviewed:** 2026-09-22
+
+This document is the *intent*: what we are building and why. It is kept as a
+record, so where the implementation went another way the section says so rather
+than being quietly rewritten — see [§9 Where the build differs from this
+plan](#9-where-the-build-differs-from-this-plan).
+
+- How it was built, step by step: [`EXECUTION.md`](EXECUTION.md)
+- How the solver works, in plain terms: [`SOLVING.md`](SOLVING.md)
 
 ---
 
@@ -29,12 +37,14 @@ A web app for 2D SVG design that works like a SolidWorks sketch: draw geometry l
 
 ### Status colors (SolidWorks convention, worth copying)
 
-| Color | Meaning |
-|---|---|
-| Blue | Under defined: free degrees of freedom remain |
-| Black | Fully defined: zero degrees of freedom |
-| Red | Over defined: redundant or conflicting constraints |
-| Yellow | Solver couldn't find a valid solution |
+**Built.** All four, per entity *and* per point, plus a count in the status bar.
+
+| Color | Meaning | In the code |
+|---|---|---|
+| Blue | Under defined: free degrees of freedom remain | `is-under`, `#2f6fde` |
+| Black | Fully defined: zero degrees of freedom | `is-full`, `#20262c` |
+| Red | Over defined: redundant or conflicting constraints | `is-over`, `#d6362b` |
+| Yellow | Solver couldn't find a valid solution | status `unsolved` |
 
 ---
 
@@ -44,16 +54,24 @@ A web app for 2D SVG design that works like a SolidWorks sketch: draw geometry l
 
 ### DOF per entity
 
-| Entity | Variables | DOF |
-|---|---|---|
-| Point | x, y | 2 |
-| Line segment | two endpoints | 4 |
-| Infinite line / construction line | point + angle | 2 |
-| Circle | center (2) + radius | 3 |
-| Arc | center (2) + radius + start angle + end angle | 5 |
-| Ellipse | center (2) + two radii + rotation | 5 |
-| Cubic Bézier segment | 4 control points | 8 |
-| Spline (n control points) | 2 per control point | 2n |
+| Entity | Variables | DOF | Built? |
+|---|---|---|---|
+| Point | x, y | 2 | yes |
+| Line segment | two endpoints | 4 | yes |
+| Infinite line / construction line | point + angle | 2 | no |
+| Circle | center (2) + radius | 3 | yes |
+| Arc | center (2) + radius + start angle + end angle | 5 | yes, **stored differently** |
+| Ellipse | center (2) + two radii + rotation | 5 | no |
+| Cubic Bézier segment | 4 control points | 8 | no (Phase 4) |
+| Spline (n control points) | 2 per control point | 2n | no (Phase 4) |
+
+**The arc is stored as three points** — centre, start, end — plus a direction
+flag, not as centre/radius/angles. Kept the plan's way, an arc's endpoints
+would be *derived* values and no line could ever share a point with an arc,
+which is how this model keeps its topology explicit. The solver adds one
+implicit constraint per arc (both endpoints equidistant from the centre), so
+the arithmetic still lands on 5: six variables minus one. See
+[`SOLVING.md`](SOLVING.md) for the worked count.
 
 ### DOF removed per constraint
 
@@ -106,18 +124,31 @@ The correct test uses the **Jacobian** of the constraint equations (rows = const
 
 ## 4. Constraint set
 
-### v1 (MVP)
+### v1 (MVP) — built
 
 - Geometric: coincident, point-on-object, horizontal, vertical, fix
 - Dimensional: distance (point–point / line length), horizontal distance, vertical distance
 
-### v2
+Horizontal and vertical are **stored as a point pair**, not an entity
+reference. The plan allows either; picking points keeps every v1 constraint
+referencing points alone, and the UI resolves a picked line to its endpoints.
 
-- Geometric: parallel, perpendicular, tangent, equal, collinear, concentric, midpoint, symmetric
-- Dimensional: angle, radius, diameter, point–line distance
-- Reference (non-driving) dimensions
+### v2 — geometric relations built, dimensions not yet
 
-### Later
+- Geometric: parallel, perpendicular, tangent, equal, collinear, concentric, midpoint, symmetric — **all built** (Step 10)
+- Dimensional: angle, radius, diameter, point–line distance — **not yet** (Step 11)
+- Reference (non-driving) dimensions — **not yet** (Step 11)
+
+Two relations turned out to need care, both recorded in §8:
+
+- **Tangency has two forms.** At a join (the line ends where the arc begins)
+  it must be stated as perpendicularity of the radius at the shared point;
+  distance-to-line-equals-radius is degenerate there and removes no freedom at
+  all. Without a shared point, the distance form is the right one.
+- **Equal** means length for lines and radius for circles and arcs, never one
+  against the other.
+
+### Later — not started
 
 - Named parameters and equations
 - Pattern constraints (linear/circular)
@@ -148,6 +179,13 @@ The correct test uses the **Jacobian** of the constraint equations (rows = const
 | Write our own in TypeScript | Damped Gauss-Newton / Levenberg–Marquardt on constraint residuals, analytic or finite-difference Jacobian, rank via QR/SVD. More work, full control, good for learning. |
 
 **Decision:** build our own solver. Existing solvers (SolveSpace, planegcs) are fair game for inspiration on approach, but not as dependencies.
+
+**Built**, in `src/core/solver/`: dense pivoted Householder QR for rank and
+nullspace (`linalg.ts`), residuals and Jacobians (`residuals.ts`,
+`v2-residuals.ts`), Levenberg-Marquardt with status and conflict reporting
+(`solve.ts`). The v2 Jacobians come from a small forward-mode autodiff
+(`autodiff.ts`) rather than hand derivation. Clustering is **not** built: every
+solve still touches the whole sketch.
 
 Solver design notes:
 
@@ -279,10 +317,15 @@ Mitigating B's sync risk:
 
 ## 6. Roadmap
 
-**Phase 0 — Decisions**
-- Decided: own solver, SVG DOM rendering, Vite, px only, Bézier-chain splines, JSON native format, cross-layer constraints (toggleable, persistent suspend), explicit path records, snapshot-based undo/redo. Remaining: coordinate convention, cross-layer suspend UI, remaining import details
+Status as of 2026-09-22: **Phase 0 and Phase 1 complete. Phase 2 is at 4 of 6
+items**, with angle/radius/diameter dimensions and the relations panel's last
+pieces outstanding. Phases 3 to 5 are untouched. Step-by-step detail is in
+[`EXECUTION.md`](EXECUTION.md).
 
-**Phase 1 — Sketch core**
+**Phase 0 — Decisions ✅**
+- Decided: own solver, SVG DOM rendering, Vite, px only, Bézier-chain splines, JSON native format, cross-layer constraints (toggleable, persistent suspend), explicit path records, snapshot-based undo/redo. Coordinate convention settled (y-down throughout, clockwise-positive angles). Still open: cross-layer suspend UI, remaining import details
+
+**Phase 1 — Sketch core ✅**
 - Points, lines, circles
 - Coincident, horizontal, vertical, fix, distance dimensions
 - Solver + DOF counter + blue/black/red status
@@ -290,11 +333,13 @@ Mitigating B's sync risk:
 - Basic SVG export + native save/load (JSON)
 - Undo/redo built on the single-transaction entry point (Cmd/Ctrl+Z)
 
-**Phase 2 — Full relation set**
-- Arcs, tangent, parallel, perpendicular, equal, midpoint, symmetric, concentric
-- Angle/radius/diameter dimensions
-- Inference while drawing
-- Constraint list panel (view/delete constraints)
+**Phase 2 — Full relation set** (4 of 6)
+- ✅ Arcs, tangent, parallel, perpendicular, equal, midpoint, symmetric, concentric, collinear
+- ⬜ Angle/radius/diameter dimensions
+- ✅ Inference while drawing (horizontal and vertical; tangent inference now possible but not wired)
+- ✅ Constraint list panel (view, delete, suspend) — selecting a relation to highlight what it acts on is still to come
+- ➕ Not in the original plan, added because the UI needed them: the editor
+  chrome from the mockup, an adaptive drawing grid with snapping, and delete
 
 **Phase 3 — Editing tools**
 - Trim, extend, offset, mirror, fillet, chamfer
@@ -313,10 +358,25 @@ Mitigating B's sync risk:
 
 ## 7. Open questions
 
-- **Cross-layer suspend UI:** behavior is decided (persistent). Still to settle: the affordance (modifier key, button, context menu) and how suspended constraints are shown and re-enabled.
-- **Import fidelity (remaining):** rounded rects, CSS class resolution, tolerance default, whether the inference setting defaults on, whether exports embed native JSON by default.
-- **Native file format:** JSON is decided; still to settle versioning/migration and whether history is ever saved.
-- **Coordinate convention:** SVG is y-down. Keep y-down internally (no flipping on import/export) and pick angle conventions.
+Settled since this list was written:
+
+- ~~**Coordinate convention**~~ — y-down throughout, no flipping on import or
+  export. Angles follow from that: increasing angle is clockwise on screen,
+  which is also SVG's sweep-flag 1. See `core/geometry.ts`.
+- ~~**Whether the inference setting defaults on**~~ — on in the app, off in the
+  editor API, since it changes both where a click lands and what the document
+  ends up containing.
+
+Still open:
+
+- **Cross-layer suspend UI:** behavior is decided (persistent) and suspend/resume
+  works from the relations panel. Still to settle: the affordance for
+  suspending *because* a relation crosses layers, and how that reads on the
+  canvas. Layers themselves have no UI yet.
+- **Import fidelity (remaining):** rounded rects, CSS class resolution, tolerance default, whether exports embed native JSON by default.
+- **Native file format:** JSON is decided, with a version field and a refusal to read a newer one; still to settle migrations and whether history is ever saved.
+- **Dimension placement:** annotations are positioned by rule (outward from the drawing's centre, repeats stacked). Letting the user drag one needs a field on the constraint, so it waits.
+- **How two round things touch:** outside or inside is read from where the geometry currently sits, because the constraint does not record it. Dragging one circle through another can flip the meaning.
 - **Export styling:** deferred. Imported styles are preserved as opaque data in the meantime.
 
 ---
@@ -376,7 +436,42 @@ Mitigating B's sync risk:
 
 ---
 
-## 9. Changelog
+## 9. Where the build differs from this plan
+
+Every row is a place the implementation went another way. The plan above is
+left as written; this is the ledger.
+
+| What the plan said | What was built | Why |
+|---|---|---|
+| Arc = centre, radius, start angle, end angle | Arc = centre, start and end **points**, plus a direction flag. Radius derived; one implicit equal-radius constraint per arc | Stored the plan's way, an arc's endpoints are derived values and no line can share a point with an arc. Shared points are how this model keeps topology explicit. The DOF still come to 5 |
+| Horizontal / vertical apply to "a line or two points" | Stored as a **point pair**; the UI resolves a picked line to its endpoints | Keeps every v1 constraint referencing points only, so the solver's variable mapping stays simple |
+| "Analytic or finite-difference Jacobian" | v1 residuals hand-derived; **v2 residuals from forward-mode autodiff** | Eight more derivations, each involving a normalised direction or a distance to a line, is where a sign error hides until a sketch quietly refuses to solve. Both are checked against finite differences |
+| Residuals implicitly all in px | Distance residuals in px; **angular residuals dimensionless** (sine or cosine of an angle) | Forcing an angle into px means choosing *which* length to scale by, and the answer would differ for a short line and a long one |
+| Tangent is one constraint | **Two formulations**, chosen by whether the two entities share a point | At a join, distance-to-line-equals-radius sits on the boundary of an inequality, so its gradient is zero and it removes no freedom. A slot reported 4 DOF until this was fixed |
+| Inference covers "horizontal, vertical, coincident, tangent" | Horizontal and vertical only | Coincident is already covered by reusing a clicked point, which shares it — a stronger statement. Tangent inference became possible only with Step 10 and is not wired up yet |
+| Dimensions have a placement | Placement is **derived**: outward from the drawing's centre, repeats stacked | Storing a user-chosen offset needs a field on the constraint, which belongs with the dimension-placement work |
+| (not mentioned) | A **drawing grid** with 1-2-5 adaptive spacing and snapping | The canvas needed somewhere to put things. Snapping is on in the app, off in the editor API |
+| (not mentioned) | **Delete**, cascading from a point to the geometry that used it | Undo was the only way to remove anything |
+| Landing page is the entry point | The **editor** is the app at `/`; the landing page moved to `/about.html` | Once there was an editor, the app should be the app |
+| Solver splits into independent clusters (later optimisation) | Not built: every solve touches the whole sketch | No sketch has been large enough to need it. Still the right next optimisation |
+
+### Things the plan was right about, worth saying
+
+- **One transaction entry point.** Every change goes through `dispatch`, and
+  retrofitting undo was never necessary. A drag coalesces to one step by
+  carrying a gesture token.
+- **Rank, not subtraction.** Counting constraints would have called the first
+  slot fully defined. The Jacobian's rank caught that four tangencies were
+  removing nothing.
+- **Explicit path records (option B).** Export is a straight walk, and the
+  predicted drift risk showed up exactly where predicted — a deleted entity
+  left behind in a path — which `validate` and the edit helpers now prevent.
+- **Core before UI.** The solver was finished and tested before anything was
+  drawn, and every UI bug since has been a UI bug rather than a solver bug.
+
+---
+
+## 10. Changelog
 
 - 2026-09-20: Initial planning doc created.
 - 2026-09-20: Recorded first round of decisions (solver, rendering, stack, units, layers, import/export); added spline primer.
@@ -394,8 +489,8 @@ Mitigating B's sync risk:
 - 2026-09-21: Phase 2 broken into Steps 8-13; decided arcs are stored as three shared points plus a direction flag rather than centre/radius/angles, so endpoints can be shared with other geometry.
 - 2026-09-21: Step 8 (arcs in the core) built: the arc entity, its implicit equal-radius constraint, point-on an arc, and DOF and per-entity status. An arc reports 5 DOF and shares endpoints with lines without a coincident constraint.
 - 2026-09-21: Step 9 (arcs in the UI and export) built: arc rendering, rim hit testing within the sweep, a centrepoint arc tool that takes its direction from the traced sweep, and `A` commands on export. Shared geometry moved to `core/geometry.ts`, restoring the `ui -> io -> core` dependency rule.
-
 - 2026-09-22: Chrome rebuilt on the mockup (icon tool rail, panels, view HUD, status bar); added an adaptive drawing grid with snapping, and delete.
 - 2026-09-22: Step 12 (inference while drawing) built: horizontal and vertical inferred as you draw, with the point moved onto the axis and a hint shown before the click commits. Tangent waits for the tangent constraint in Step 10.
 - 2026-09-22: Fixed two bugs of one shape found by driving the app: `referencedPoints` and the renderer's conflict check each listed an entity's points by hand and, because `center` exists on both a circle and an arc, silently ignored an arc's endpoints. Both now go through `entityPointIds`.
 - 2026-09-22: Step 10 (the rest of the relation set) built: parallel, perpendicular, collinear, tangent, equal, concentric, midpoint and symmetric, with autodiff-derived Jacobians checked against finite differences. A slot now solves to 0 DOF.
+- 2026-09-22: Documentation pass. Marked what is built through the plan, added §9 recording every place the build differs from it, and wrote `SOLVING.md` explaining degrees of freedom, rank, and what the status colours mean, with each claim tied to the test that proves it.

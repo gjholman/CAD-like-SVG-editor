@@ -3,7 +3,8 @@
 A web app for editing SVGs the way you work in a CAD sketch: add relations and
 dimensions, and a solver keeps the geometry consistent.
 
-- Plan and decisions: [`docs/svg-cad-plan.md`](docs/svg-cad-plan.md)
+- How solving works, in plain terms: [`docs/SOLVING.md`](docs/SOLVING.md)
+- Plan, decisions, and where the build differs from them: [`docs/svg-cad-plan.md`](docs/svg-cad-plan.md)
 - How we build it, step by step: [`docs/EXECUTION.md`](docs/EXECUTION.md)
 
 ## Quick start
