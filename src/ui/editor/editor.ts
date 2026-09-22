@@ -83,6 +83,11 @@ const RELATION_KEYS: Readonly<Record<string, RelationKind>> = {
   v: 'vertical',
   c: 'coincident',
   f: 'fix',
+  p: 'parallel',
+  r: 'perpendicular',
+  t: 'tangent',
+  e: 'equal',
+  s: 'symmetric',
 };
 
 const RELATION_LABELS: Readonly<Record<RelationKind, string>> = {
@@ -90,6 +95,14 @@ const RELATION_LABELS: Readonly<Record<RelationKind, string>> = {
   vertical: 'Add vertical',
   coincident: 'Add coincident',
   fix: 'Fix point',
+  parallel: 'Add parallel',
+  perpendicular: 'Add perpendicular',
+  collinear: 'Add collinear',
+  tangent: 'Add tangent',
+  equal: 'Add equal',
+  concentric: 'Add concentric',
+  midpoint: 'Add midpoint',
+  symmetric: 'Add symmetric',
 };
 
 /** Pick radius in screen px, so it feels the same at any zoom. */

@@ -12,15 +12,68 @@
 import {
   addConstraint,
   compose,
+  constraintRefs,
   type Constraint,
   type DocumentEdit,
+  type Entity,
   type Id,
   type IdGenerator,
   type SketchDocument,
 } from '../../core/model';
 import type { Point2 } from '../render';
 
-export type RelationKind = 'horizontal' | 'vertical' | 'coincident' | 'fix';
+export type RelationKind =
+  | 'horizontal'
+  | 'vertical'
+  | 'coincident'
+  | 'fix'
+  | 'parallel'
+  | 'perpendicular'
+  | 'collinear'
+  | 'tangent'
+  | 'equal'
+  | 'concentric'
+  | 'midpoint'
+  | 'symmetric';
+
+/** Relations between two whole entities rather than between points. */
+const ENTITY_PAIRS = ['parallel', 'perpendicular', 'collinear', 'tangent', 'equal', 'concentric'] as const;
+
+type EntityPairKind = (typeof ENTITY_PAIRS)[number];
+
+const isEntityPair = (kind: RelationKind): kind is EntityPairKind =>
+  (ENTITY_PAIRS as readonly string[]).includes(kind);
+
+/** A circle or an arc: the things that have a centre and a radius. */
+const isRound = (entity: Entity | undefined): boolean =>
+  entity?.kind === 'circle' || entity?.kind === 'arc';
+
+const isLine = (entity: Entity | undefined): boolean => entity?.kind === 'line';
+
+/**
+ * Whether a relation makes sense for these two entities.
+ *
+ * Refusing here is better than letting the solver add a row it cannot read:
+ * "parallel to a circle" would sit in the relations list removing no freedom,
+ * and the user would have no way to tell why their sketch stayed blue.
+ */
+function suitsPair(kind: EntityPairKind, a: Entity | undefined, b: Entity | undefined): boolean {
+  if (a === undefined || b === undefined) return false;
+  switch (kind) {
+    case 'parallel':
+    case 'perpendicular':
+    case 'collinear':
+      return isLine(a) && isLine(b);
+    case 'concentric':
+      return isRound(a) && isRound(b);
+    case 'tangent':
+      // A line and a round thing, or two round things. Never two lines.
+      return (isRound(a) || isRound(b)) && !(isLine(a) && isLine(b));
+    case 'equal':
+      // Length against length, or radius against radius, never one of each.
+      return (isLine(a) && isLine(b)) || (isRound(a) && isRound(b));
+  }
+}
 
 export interface Selection {
   readonly points: readonly Id[];
@@ -72,20 +125,47 @@ export function relationEdit(
   selection: Iterable<Id>,
   nextId: IdGenerator,
 ): DocumentEdit | undefined {
+  const { points, entities } = describeSelection(doc, selection);
+
   if (kind === 'fix') {
-    const { points } = describeSelection(doc, selection);
-    const unfixed = points.filter((id) => !hasConstraint(doc, { kind: 'fix', point: id }));
+    const unfixed = points.filter((id) => !hasConstraint(doc, { kind: 'fix', points: [id], entities: [] }));
     if (unfixed.length === 0) return undefined;
-    return compose(
-      ...unfixed.map((id) => addConstraint({ id: nextId('c'), kind: 'fix', point: id })),
-    );
+    return compose(...unfixed.map((id) => addConstraint({ id: nextId('c'), kind: 'fix', point: id })));
   }
 
+  if (isEntityPair(kind)) {
+    if (points.length > 0 || entities.length !== 2) return undefined;
+    const [a, b] = entities as [Id, Id];
+    if (a === b) return undefined;
+    if (!suitsPair(kind, doc.entities[a], doc.entities[b])) return undefined;
+    if (hasConstraint(doc, { kind, points: [], entities: [a, b] })) return undefined;
+    return addConstraint({ id: nextId('c'), kind, a, b } as Constraint);
+  }
+
+  if (kind === 'midpoint') {
+    if (points.length !== 1 || entities.length !== 1) return undefined;
+    const [point] = points as [Id];
+    const [entity] = entities as [Id];
+    if (!isLine(doc.entities[entity])) return undefined;
+    if (hasConstraint(doc, { kind, points: [point], entities: [entity] })) return undefined;
+    return addConstraint({ id: nextId('c'), kind, point, entity });
+  }
+
+  if (kind === 'symmetric') {
+    if (points.length !== 2 || entities.length !== 1) return undefined;
+    const [p1, p2] = points as [Id, Id];
+    const [entity] = entities as [Id];
+    if (!isLine(doc.entities[entity])) return undefined;
+    if (hasConstraint(doc, { kind, points: [p1, p2], entities: [entity] })) return undefined;
+    return addConstraint({ id: nextId('c'), kind, p1, p2, entity });
+  }
+
+  // The v1 point-pair relations, which also accept a picked line.
   const pair = pointPair(doc, selection);
   if (pair === undefined) return undefined;
   const [p1, p2] = pair;
   if (p1 === p2) return undefined;
-  if (hasConstraint(doc, { kind, p1, p2 })) return undefined;
+  if (hasConstraint(doc, { kind, points: [p1, p2], entities: [] })) return undefined;
 
   return addConstraint({ id: nextId('c'), kind, p1, p2 } as Constraint);
 }
@@ -143,7 +223,7 @@ export function dimensionEdit(
 ): DocumentEdit | undefined {
   const plan = dimensionPlan(doc, selection, positions);
   if (plan === undefined) return undefined;
-  if (hasConstraint(doc, { kind: plan.kind, p1: plan.p1, p2: plan.p2 })) return undefined;
+  if (hasConstraint(doc, { kind: plan.kind, points: [plan.p1, plan.p2], entities: [] })) return undefined;
 
   return addConstraint({
     id: nextId('dim'),
@@ -173,19 +253,26 @@ export function setSuspended(id: Id, suspended: boolean): DocumentEdit {
   };
 }
 
-/** Is an equivalent relation already present? Point order does not matter. */
+/**
+ * Is an equivalent relation already present?
+ *
+ * Same kind and same set of references, whichever order they were picked in.
+ * Comparing sets rather than fields means a new relation kind cannot be
+ * forgotten here — which is the mistake that let an arc's endpoints go
+ * unnoticed elsewhere.
+ */
 function hasConstraint(
   doc: SketchDocument,
-  probe: { kind: Constraint['kind']; point?: Id; p1?: Id; p2?: Id },
+  probe: { kind: Constraint['kind']; points: readonly Id[]; entities: readonly Id[] },
 ): boolean {
+  const key = (points: readonly Id[], entities: readonly Id[]) =>
+    `${[...points].sort().join(',')}|${[...entities].sort().join(',')}`;
+  const wanted = key(probe.points, probe.entities);
+
   return Object.values(doc.constraints).some((constraint) => {
     if (constraint.kind !== probe.kind) return false;
-    if (probe.point !== undefined) return 'point' in constraint && constraint.point === probe.point;
-    if (!('p1' in constraint)) return false;
-    return (
-      (constraint.p1 === probe.p1 && constraint.p2 === probe.p2) ||
-      (constraint.p1 === probe.p2 && constraint.p2 === probe.p1)
-    );
+    const refs = constraintRefs(constraint);
+    return key(refs.points, refs.entities) === wanted;
   });
 }
 

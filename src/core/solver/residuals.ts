@@ -12,6 +12,7 @@
  */
 import { createMatrix, setAt, type Matrix } from './linalg';
 import { pointVariable, radiusVariable, type VariableMap } from './variables';
+import { v2ConstraintRows } from './v2-residuals';
 import type { Constraint, Id, SketchDocument } from '../model';
 
 /** Below this length a line or radius is too degenerate to differentiate. */
@@ -115,6 +116,11 @@ export function constraintRows(
 
     case 'point-on':
       return pointOnRows(constraint.id, constraint.point, constraint.entity, doc, variables, x);
+
+    default:
+      // The v2 relations, whose derivatives come from autodiff rather than by
+      // hand. Kept in their own module so the two styles stay separable.
+      return v2ConstraintRows(constraint, doc, variables, x);
   }
 }
 

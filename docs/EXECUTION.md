@@ -3,10 +3,10 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status:** Phase 1 complete (Steps 0-7). Phase 2 in progress: Steps 8, 9 and
-12 done (arcs, inference), plus the chrome rebuild, grid and delete. Steps 10,
-11 and 13 still to come (the rest of the relations, angle and radius
-dimensions, the relations panel's remaining work).
+**Status:** Phase 1 complete (Steps 0-7). Phase 2: Steps 8, 9, 10 and 12 done
+(arcs, the full relation set, inference), plus the chrome rebuild, grid and
+delete. Steps 11 and 13 remain (angle/radius/diameter dimensions, and the
+relations panel's last pieces).
 A first UI mockup is in [`mockups/ui-mockup-v1.html`](mockups/ui-mockup-v1.html);
 Steps 4 to 6 work from it.
 
@@ -554,12 +554,57 @@ Settled while building it:
   global pointer event tore the clicked row out of the DOM before its `click`
   fired, so the panel's own delete and suspend buttons silently did nothing.
 
-### Step 10: The rest of the relation set
+### Step 10: The rest of the relation set — done
 
 - **Adds:** parallel, perpendicular, tangent, equal, collinear, concentric,
   midpoint, symmetric, each with an analytic Jacobian checked against finite
   differences; selection rules and buttons for each.
 - **Done when:** a slot (two lines, two tangent arcs) can be fully defined.
+
+A slot now solves to 0 DOF and is driven by its length and radius dimensions.
+
+Settled while building it:
+
+- **The v2 residuals use forward-mode autodiff** (`core/solver/autodiff.ts`),
+  not hand-derived Jacobians. Eight more derivations — tangency, symmetry,
+  collinearity, each involving a normalised direction or a distance to a line
+  — is where a sign error would hide until a sketch quietly refused to solve.
+  Written as ordinary arithmetic on `Dual` values the derivatives are exact by
+  construction, and the same finite-difference tests still check the
+  expressions end to end. The v1 residuals stay hand-derived: they work and
+  are tested, and rewriting them would be churn. Migrating them later is
+  worthwhile but is not a bug fix.
+- **Angular residuals are dimensionless.** Every v1 residual is in px, but
+  "parallel" is about directions and its natural residual is the sine of the
+  angle between them. Scaling by a length to force px would mean choosing
+  *which* length, and the answer would differ for a short line and a long one.
+  So angular rows are in [-1, 1] and the solver's tolerance is simply a
+  tighter test for them: 1e-9 of a sine is about 6e-8 of a degree.
+- **Tangency is stated two different ways, and the distinction decides whether
+  a slot can be defined at all.** At a *join* — the line ends where the arc
+  begins, which is what a slot or a fillet is made of — `distance(centre,
+  line) = radius` is degenerate: `distance(centre, line) ≤ |end − centre|`
+  always holds, with equality exactly at the solution, so the residual sits on
+  the boundary of an inequality and its gradient is zero. It constrains
+  nothing, and the first slot reported 4 DOF with all four tangencies flagged
+  as redundant. Stated as "the radius at the shared point meets the line at a
+  right angle" it is an ordinary equation. Without a shared point the distance
+  form is correct and not degenerate, so both are kept and the presence of a
+  shared point chooses between them. Two arcs meeting at a point get the same
+  treatment: their radii there are in line.
+- **Which way two round things touch is read from the geometry.** Outside (a
+  sum of radii apart) or inside (a difference) is not in the constraint. The
+  choice comes from the document rather than the iterating variables, so it is
+  fixed for a whole solve; dragging one circle through another can flip it
+  between solves, a known v0 rough edge.
+- **The commands layer refuses combinations the solver cannot read.**
+  "Parallel to a circle" would otherwise sit in the relations list removing no
+  freedom, with nothing to tell the user why their sketch stayed blue.
+- **Constraint references have one definition.** `constraintRefs` in
+  `core/model/types.ts` now serves `validate`, the solver, delete and the
+  panel alike. Every call site used to list the fields by hand, which is
+  exactly how an arc's endpoints came to be treated as unreferenced, and eight
+  new relations would have multiplied that risk by eight.
 
 ### Step 11: Angle, radius and diameter dimensions
 

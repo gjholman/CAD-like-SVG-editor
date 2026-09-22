@@ -38,6 +38,9 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></symbol>
+    <symbol id="i-parallel" viewBox="0 0 24 24"><path d="M7 19L13 5M13 19L19 5"/></symbol>
+    <symbol id="i-perp" viewBox="0 0 24 24"><path d="M12 4v16M4 20h16"/></symbol>
+    <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M12 3v18" stroke-dasharray="2 2"/><path d="M4 8l6 4-6 4z"/><path d="M20 8l-6 4 6 4z"/></symbol>
       </defs>
     </svg>
 
@@ -123,6 +126,30 @@
                 </button>
                 <button data-relation="fix" disabled>
                   <svg class="i" width="16" height="16"><use href="#i-fix" /></svg><span>Fix</span><b>⇧F</b>
+                </button>
+                <button data-relation="parallel" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-parallel" /></svg><span>Parallel</span><b>⇧P</b>
+                </button>
+                <button data-relation="perpendicular" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-perp" /></svg><span>Perpendicular</span><b>⇧R</b>
+                </button>
+                <button data-relation="tangent" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-tangent" /></svg><span>Tangent</span><b>⇧T</b>
+                </button>
+                <button data-relation="equal" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-equal" /></svg><span>Equal</span><b>⇧E</b>
+                </button>
+                <button data-relation="collinear" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-horizontal" /></svg><span>Collinear</span>
+                </button>
+                <button data-relation="concentric" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-circle" /></svg><span>Concentric</span>
+                </button>
+                <button data-relation="midpoint" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-coincident" /></svg><span>Midpoint</span>
+                </button>
+                <button data-relation="symmetric" disabled>
+                  <svg class="i" width="16" height="16"><use href="#i-mirror" /></svg><span>Symmetric</span><b>⇧S</b>
                 </button>
               </div>
             </div>

@@ -22,7 +22,7 @@
  */
 import type { EntityStatus, SolveResult } from '../../core/solver';
 import { arcShape, type ArcShape } from '../../core/geometry';
-import { entityPointIds, type Entity, type Id, type SketchDocument } from '../../core/model';
+import { constraintRefs, entityPointIds, type Entity, type Id, type SketchDocument } from '../../core/model';
 import { arrowPath, dimensionGeometry, type DimensionGeometry } from './dimensions';
 import { gridLines, type GridOptions } from './grid';
 import { viewTransform, type Point2, type Viewport } from './viewport';
@@ -232,11 +232,9 @@ function touchesConflict(entityId: Id, conflicted: ReadonlySet<Id>, doc: SketchD
   for (const constraintId of conflicted) {
     const constraint = doc.constraints[constraintId];
     if (constraint === undefined) continue;
-    if (constraint.kind === 'fix' && points.has(constraint.point)) return true;
-    if (constraint.kind === 'point-on' && (points.has(constraint.point) || constraint.entity === entityId)) {
-      return true;
-    }
-    if ('p1' in constraint && (points.has(constraint.p1) || points.has(constraint.p2))) return true;
+    const refs = constraintRefs(constraint);
+    if (refs.entities.includes(entityId)) return true;
+    if (refs.points.some((id) => points.has(id))) return true;
   }
   return false;
 }

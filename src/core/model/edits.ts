@@ -11,7 +11,7 @@
  * and drawing tools extend paths through `extendPath` rather than by hand.
  */
 import type { Id } from './ids';
-import { entityPointIds } from './types';
+import { constraintRefs, entityPointIds } from './types';
 import type { Constraint, Entity, PathRecord, Point, SketchDocument, SubPath } from './types';
 
 /** Structurally identical to history's `Transaction`; kept separate so `model` owns no dependency on `history`. */
@@ -159,9 +159,11 @@ export function removeEntity(entityId: Id): DocumentEdit {
       if (subpaths.length > 0) paths[path.id] = { ...path, subpaths };
     }
 
+    // Any constraint that named the entity, not just point-on: a parallel
+    // relation to a deleted line cannot mean anything either.
     const constraints = Object.fromEntries(
       Object.entries(doc.constraints).filter(
-        ([, constraint]) => !(constraint.kind === 'point-on' && constraint.entity === entityId),
+        ([, constraint]) => !constraintRefs(constraint).entities.includes(entityId),
       ),
     );
 
@@ -202,9 +204,7 @@ export function removePoint(pointId: Id): DocumentEdit {
 }
 
 function constraintNames(constraint: Constraint, pointId: Id): boolean {
-  if ('point' in constraint) return constraint.point === pointId;
-  if ('p1' in constraint) return constraint.p1 === pointId || constraint.p2 === pointId;
-  return false;
+  return constraintRefs(constraint).points.includes(pointId);
 }
 
 /** Every point an entity still in the document depends on. */
@@ -218,12 +218,7 @@ export function referencedPoints(doc: SketchDocument): Set<Id> {
     for (const pointId of entityPointIds(entity)) used.add(pointId);
   }
   for (const constraint of Object.values(doc.constraints)) {
-    if (constraint.kind === 'fix') used.add(constraint.point);
-    else if (constraint.kind === 'point-on') used.add(constraint.point);
-    else {
-      used.add(constraint.p1);
-      used.add(constraint.p2);
-    }
+    for (const pointId of constraintRefs(constraint).points) used.add(pointId);
   }
   return used;
 }

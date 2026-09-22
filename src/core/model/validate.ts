@@ -7,8 +7,8 @@
  */
 import type { Id } from './ids';
 import {
+  constraintRefs,
   entityPointIds,
-  type Constraint,
   type PathRecord,
   type SketchDocument,
 } from './types';
@@ -197,19 +197,3 @@ function checkLayerOrder(doc: SketchDocument, add: AddIssue): void {
   }
 }
 
-/** Which points and entities a constraint refers to. */
-function constraintRefs(constraint: Constraint): { points: Id[]; entities: Id[] } {
-  switch (constraint.kind) {
-    case 'fix':
-      return { points: [constraint.point], entities: [] };
-    case 'point-on':
-      return { points: [constraint.point], entities: [constraint.entity] };
-    case 'coincident':
-    case 'horizontal':
-    case 'vertical':
-    case 'distance':
-    case 'horizontal-distance':
-    case 'vertical-distance':
-      return { points: [constraint.p1, constraint.p2], entities: [] };
-  }
-}

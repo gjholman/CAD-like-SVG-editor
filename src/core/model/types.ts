@@ -147,7 +147,74 @@ export interface VerticalDistanceConstraint extends ConstraintBase {
   readonly value: number;
 }
 
-/** The v1 constraint set. Phase 2 adds parallel, tangent, equal and friends. */
+/**
+ * Relations between two entities rather than between points.
+ *
+ * The v1 set deliberately referenced points only, which kept the solver's
+ * variable mapping simple. These cannot: "parallel" is a statement about two
+ * lines' directions, and resolving it to a point pair would lose that.
+ */
+interface EntityPairBase {
+  readonly id: Id;
+  readonly suspended?: boolean;
+  readonly a: Id;
+  readonly b: Id;
+}
+
+/** Two lines point the same way. Removes 1 DOF. */
+export interface ParallelConstraint extends EntityPairBase {
+  readonly kind: 'parallel';
+}
+
+/** Two lines meet at a right angle. Removes 1 DOF. */
+export interface PerpendicularConstraint extends EntityPairBase {
+  readonly kind: 'perpendicular';
+}
+
+/** Two lines lie along the same infinite line. Removes 2 DOF. */
+export interface CollinearConstraint extends EntityPairBase {
+  readonly kind: 'collinear';
+}
+
+/**
+ * A line touches a circle or arc, or two circles/arcs touch each other.
+ * Removes 1 DOF.
+ */
+export interface TangentConstraint extends EntityPairBase {
+  readonly kind: 'tangent';
+}
+
+/** Equal length (two lines) or equal radius (two circles/arcs). Removes 1 DOF. */
+export interface EqualConstraint extends EntityPairBase {
+  readonly kind: 'equal';
+}
+
+/** Two circles or arcs share a centre. Removes 2 DOF. */
+export interface ConcentricConstraint extends EntityPairBase {
+  readonly kind: 'concentric';
+}
+
+/** A point sits halfway along a line. Removes 2 DOF. */
+export interface MidpointConstraint {
+  readonly id: Id;
+  readonly suspended?: boolean;
+  readonly point: Id;
+  readonly entity: Id;
+  readonly kind: 'midpoint';
+}
+
+/** Two points mirror each other about a line. Removes 2 DOF. */
+export interface SymmetricConstraint {
+  readonly id: Id;
+  readonly suspended?: boolean;
+  readonly p1: Id;
+  readonly p2: Id;
+  /** The line they are symmetric about. */
+  readonly entity: Id;
+  readonly kind: 'symmetric';
+}
+
+/** The v1 set, plus the v2 relations from Phase 2. */
 export type Constraint =
   | CoincidentConstraint
   | PointOnConstraint
@@ -156,7 +223,15 @@ export type Constraint =
   | FixConstraint
   | DistanceConstraint
   | HorizontalDistanceConstraint
-  | VerticalDistanceConstraint;
+  | VerticalDistanceConstraint
+  | ParallelConstraint
+  | PerpendicularConstraint
+  | CollinearConstraint
+  | TangentConstraint
+  | EqualConstraint
+  | ConcentricConstraint
+  | MidpointConstraint
+  | SymmetricConstraint;
 
 export type ConstraintKind = Constraint['kind'];
 
@@ -232,6 +307,43 @@ export function createEmptyDocument(layerId: Id = 'layer1', name = 'Layer 1'): S
     layers: { [layerId]: { id: layerId, name, visible: true, locked: false } },
     layerOrder: [layerId],
   };
+}
+
+/**
+ * The points and entities a constraint refers to.
+ *
+ * One definition, used by `validate`, the solver and the UI alike. Listing
+ * these fields by hand at each call site is how an arc's endpoints came to be
+ * treated as unreferenced: `center` exists on a circle *and* an arc, so a
+ * branch that assumed the wrong one still typechecked.
+ */
+export function constraintRefs(constraint: Constraint): {
+  readonly points: readonly Id[];
+  readonly entities: readonly Id[];
+} {
+  switch (constraint.kind) {
+    case 'fix':
+      return { points: [constraint.point], entities: [] };
+    case 'point-on':
+    case 'midpoint':
+      return { points: [constraint.point], entities: [constraint.entity] };
+    case 'symmetric':
+      return { points: [constraint.p1, constraint.p2], entities: [constraint.entity] };
+    case 'coincident':
+    case 'horizontal':
+    case 'vertical':
+    case 'distance':
+    case 'horizontal-distance':
+    case 'vertical-distance':
+      return { points: [constraint.p1, constraint.p2], entities: [] };
+    case 'parallel':
+    case 'perpendicular':
+    case 'collinear':
+    case 'tangent':
+    case 'equal':
+    case 'concentric':
+      return { points: [], entities: [constraint.a, constraint.b] };
+  }
 }
 
 /** The point IDs an entity is built from, in a stable order. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
+import { removeEntity } from './edits';
 import { createEmptyDocument } from './types';
 import { isValid, validate, type IssueCode } from './validate';
 
@@ -186,5 +187,56 @@ describe('validate', () => {
     doc.entities[lines[0]].p2 = 'nope';
     doc.layerOrder.push('nope');
     expect(codes(doc).sort()).toEqual(['bad-number', 'dangling-reference', 'layer-order-mismatch']);
+  });
+});
+
+describe('v2 relations', () => {
+  const base = () => {
+    const { doc, lines } = rectangleFixture();
+    return { doc: structuredClone(doc) as Mutable, lines };
+  };
+
+  it('accepts a relation between two entities', () => {
+    const { doc, lines } = base();
+    doc.constraints['c-par'] = { id: 'c-par', kind: 'parallel', a: lines[0], b: lines[2] };
+    expect(codes(doc)).toEqual([]);
+  });
+
+  it('reports an entity-pair relation naming a missing entity', () => {
+    const { doc, lines } = base();
+    doc.constraints['c-par'] = { id: 'c-par', kind: 'parallel', a: lines[0], b: 'gone' };
+    expect(codes(doc)).toEqual(['dangling-reference']);
+  });
+
+  it('reports a midpoint naming a missing point or entity', () => {
+    const { doc, lines, corners } = { ...base(), corners: rectangleFixture().corners };
+    doc.constraints['c-mid'] = { id: 'c-mid', kind: 'midpoint', point: 'gone', entity: lines[0] };
+    expect(codes(doc)).toEqual(['dangling-reference']);
+
+    doc.constraints['c-mid'] = { id: 'c-mid', kind: 'midpoint', point: corners[0], entity: 'gone' };
+    expect(codes(doc)).toEqual(['dangling-reference']);
+  });
+
+  it('reports a symmetric relation naming missing references', () => {
+    const { doc, lines } = base();
+    const { corners } = rectangleFixture();
+    doc.constraints['c-sym'] = {
+      id: 'c-sym',
+      kind: 'symmetric',
+      p1: corners[0],
+      p2: 'gone',
+      entity: lines[0],
+    };
+    expect(codes(doc)).toEqual(['dangling-reference']);
+  });
+
+  it('takes an entity-pair relation with the entity it names', () => {
+    // Deleting a line must not leave a parallel relation pointing at it.
+    const { doc, lines } = base();
+    doc.constraints['c-par'] = { id: 'c-par', kind: 'parallel', a: lines[0], b: lines[2] };
+    const trimmed = removeEntity(lines[0])(doc as never);
+
+    expect(trimmed.constraints['c-par']).toBeUndefined();
+    expect(validate(trimmed)).toEqual([]);
   });
 });

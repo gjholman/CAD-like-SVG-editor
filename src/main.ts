@@ -16,7 +16,7 @@ import {
 } from './ui/editor';
 import { formatValue, isDimension, screenToWorld } from './ui/render';
 import { SketchFileError, fromJson, suggestFilename, toJson, toSvg } from './io';
-import type { Constraint } from './core/model';
+import { constraintRefs, type Constraint } from './core/model';
 
 const stage = document.querySelector('#stage');
 if (stage === null) throw new Error('index.html is missing its canvas');
@@ -51,6 +51,14 @@ const RELATION_NAMES: Record<string, string> = {
   vertical: 'Vertical',
   coincident: 'Coincident',
   fix: 'Fix',
+  parallel: 'Parallel',
+  perpendicular: 'Perpendicular',
+  collinear: 'Collinear',
+  tangent: 'Tangent',
+  equal: 'Equal',
+  concentric: 'Concentric',
+  midpoint: 'Midpoint',
+  symmetric: 'Symmetric',
   'point-on': 'Point on',
   distance: 'Distance',
   'horizontal-distance': 'Width',
@@ -62,6 +70,14 @@ const RELATION_ICONS: Record<string, string> = {
   vertical: '#i-vertical',
   coincident: '#i-coincident',
   fix: '#i-fix',
+  parallel: '#i-parallel',
+  perpendicular: '#i-perp',
+  collinear: '#i-horizontal',
+  tangent: '#i-tangent',
+  equal: '#i-equal',
+  concentric: '#i-circle',
+  midpoint: '#i-coincident',
+  symmetric: '#i-mirror',
   'point-on': '#i-link',
   distance: '#i-dim',
   'horizontal-distance': '#i-dim',
@@ -88,14 +104,8 @@ function icon(href: string, size = 16): SVGSVGElement {
 
 /** What a relation acts on, in the ids the canvas shows. */
 function describe(constraint: Constraint): string {
-  switch (constraint.kind) {
-    case 'fix':
-      return constraint.point;
-    case 'point-on':
-      return `${constraint.point} on ${constraint.entity}`;
-    default:
-      return `${constraint.p1} and ${constraint.p2}`;
-  }
+  const { points, entities } = constraintRefs(constraint);
+  return [...points, ...entities].join(' and ');
 }
 
 /** A sentence for whatever is selected, so the panel is never just blank. */
