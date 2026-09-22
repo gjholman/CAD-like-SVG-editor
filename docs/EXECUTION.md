@@ -3,7 +3,7 @@
 How we build the CAD-like SVG editor, in small steps. The *what* and *why* live in
 [`svg-cad-plan.md`](svg-cad-plan.md); this file is the *how* and *in what order*.
 
-**Status** (2026-09-22): Phase 1 complete. Phase 2 has two steps left.
+**Status** (2026-09-22): Phase 1 and Phase 2 complete.
 
 | Step | | |
 |---|---|---|
@@ -19,12 +19,12 @@ How we build the CAD-like SVG editor, in small steps. The *what* and *why* live 
 | 8 | Arcs in the core | ✅ |
 | 9 | Arcs in the UI and export | ✅ |
 | 10 | The rest of the relation set | ✅ |
-| 11 | Angle, radius and diameter dimensions | ⬜ |
+| 11 | Angle, radius and diameter dimensions | ✅ |
 | 12 | Inference while drawing | ✅ |
-| 13 | Relations panel: highlighting, cross-layer suspend | ◐ suspend and delete done |
+| 13 | Relations panel: highlighting, cross-layer suspend | ✅ |
 | — | Chrome rebuild, grid, snapping, delete (added out of order) | ✅ |
 
-**667 tests** across 31 files. `npm run typecheck`, `npm run test:run` and
+**793 tests** across 33 files. `npm run typecheck`, `npm run test:run` and
 `npm run build` all clean, and CI runs the three on every push.
 
 Reading order for someone new: [`../README.md`](../README.md) for what it is,

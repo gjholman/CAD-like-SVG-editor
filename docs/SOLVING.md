@@ -290,6 +290,10 @@ angle than for a distance. A sine of `1e-9` is about `6e-8` of a degree.
 | Status bar: *Empty sketch* | No geometry. Technically 0 degrees of freedom, but saying "fully defined" over a blank canvas reads wrong |
 | A relation greyed out in the panel | Your selection does not suit it — or it is already there |
 | Relations list, red text | This is one of the relations the solver is blaming |
+| A dimension in **(brackets)** | A reference dimension: it measures, it does not drive |
+| `R25` / `⌀25` | Radius / diameter. Different circles, which is why the prefix is not decoration |
+| Geometry glowing blue-ish when a relation is selected | What that relation acts on. It is *not* selected — deleting removes the relation, not the geometry |
+| A relation badged *across layers* | It ties two layers together; the panel's toggle suspends every one of those at once |
 
 **Points and entities are coloured separately**, and for a reason: a line is
 under defined when *either* end can move, so its colour cannot tell you *which*
@@ -305,6 +309,30 @@ black dots too, while the right pair turn blue.
 - `render.test.ts` → `"colours individual points by their own freedom"`
 - `render.test.ts` → `"turns the implicated geometry red when over defined"`
 
+### Dimensions that measure instead of driving
+
+Every dimension so far has been an *input*: type 480 and the geometry moves to
+suit. A **reference dimension** is the opposite — a number the sketch produces.
+It is drawn like any other, with its value in brackets, and the solver never
+sees it at all.
+
+That difference is the whole point, and it shows in the arithmetic: turn a
+driving dimension into a reference one and a degree of freedom comes straight
+back, because the equation that was removing it is gone. Its number then
+follows the geometry rather than the other way round, and it can never be
+wrong, conflicting or redundant — there is nothing for it to disagree with.
+
+It is deliberately *not* the same thing as suspending a relation, though both
+are skipped by the solver. A suspended relation is a driving one switched off
+for now and expected back (that is how the cross-layer toggle works); a
+reference dimension was never driving anything. Drawing them the same way
+would hide which is which, so a suspended relation is greyed and dashed while
+a reference one is bracketed.
+
+- `solve.test.ts` → `"removes no freedom, unlike the driving dimension it looks like"`
+- `solve.test.ts` → `"is not the same as suspending the dimension"`
+- `dimensions-tool.test.ts` → `"gives the freedom back when it stops driving"`
+
 ### Things the UI does that are not the solver
 
 Worth separating, because they look like solving and aren't:
@@ -318,7 +346,13 @@ Worth separating, because they look like solving and aren't:
   only the first gives you a sketch that looks right and falls apart when
   anything moves.
 - **Dimension placement** is a drawing rule, not a solved value: annotations go
-  outward from the middle of the drawing, and repeats on the same pair stack.
+  outward from the middle of the drawing, repeats on the same geometry stack,
+  and radius leaders fan out by a step each so two on one circle do not land on
+  top of each other.
+- **Which dimension you get** is a rule about what you picked, not about the
+  geometry: two lines give an angle, a circle gives a diameter and an arc a
+  radius (the drawing conventions), a point and a line give the gap between
+  them. The solver would accept a radius on a circle just as happily.
 
 - `inference.test.ts` → `"infers horizontal for a nearly level segment, and levels it exactly"`
 - `inference-tool.test.ts` → `"lands the point exactly level, not three pixels off"`

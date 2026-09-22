@@ -133,11 +133,18 @@ Horizontal and vertical are **stored as a point pair**, not an entity
 reference. The plan allows either; picking points keeps every v1 constraint
 referencing points alone, and the UI resolves a picked line to its endpoints.
 
-### v2 — geometric relations built, dimensions not yet
+### v2 — built
 
 - Geometric: parallel, perpendicular, tangent, equal, collinear, concentric, midpoint, symmetric — **all built** (Step 10)
-- Dimensional: angle, radius, diameter, point–line distance — **not yet** (Step 11)
-- Reference (non-driving) dimensions — **not yet** (Step 11)
+- Dimensional: angle, radius, diameter, point–line distance — **built** (Step 11)
+- Reference (non-driving) dimensions — **built** (Step 11)
+
+Angle is stored in degrees and solved in radians, as the error itself rather
+than its sine: the sine's derivative vanishes exactly a quarter turn from the
+target, which would leave a line 90° out sitting on a zero gradient. Radius
+and diameter are the same single degree of freedom said two ways, kept apart
+so the drawing reads as intended — circles are conventionally dimensioned by
+diameter, arcs by radius.
 
 Two relations turned out to need care, both recorded in §8:
 
@@ -317,9 +324,8 @@ Mitigating B's sync risk:
 
 ## 6. Roadmap
 
-Status as of 2026-09-22: **Phase 0 and Phase 1 complete. Phase 2 is at 4 of 6
-items**, with angle/radius/diameter dimensions and the relations panel's last
-pieces outstanding. Phases 3 to 5 are untouched. Step-by-step detail is in
+Status as of 2026-09-22: **Phases 0, 1 and 2 complete.** Phases 3 to 5 are
+untouched. Step-by-step detail is in
 [`EXECUTION.md`](EXECUTION.md).
 
 **Phase 0 — Decisions ✅**
@@ -333,11 +339,11 @@ pieces outstanding. Phases 3 to 5 are untouched. Step-by-step detail is in
 - Basic SVG export + native save/load (JSON)
 - Undo/redo built on the single-transaction entry point (Cmd/Ctrl+Z)
 
-**Phase 2 — Full relation set** (4 of 6)
+**Phase 2 — Full relation set ✅**
 - ✅ Arcs, tangent, parallel, perpendicular, equal, midpoint, symmetric, concentric, collinear
-- ⬜ Angle/radius/diameter dimensions
+- ✅ Angle/radius/diameter dimensions, point–line distance, and reference dimensions
 - ✅ Inference while drawing (horizontal and vertical; tangent inference now possible but not wired)
-- ✅ Constraint list panel (view, delete, suspend) — selecting a relation to highlight what it acts on is still to come
+- ✅ Constraint list panel (view, delete, suspend, highlight what a relation acts on, cross-layer suspend)
 - ➕ Not in the original plan, added because the UI needed them: the editor
   chrome from the mockup, an adaptive drawing grid with snapping, and delete
 
@@ -369,13 +375,14 @@ Settled since this list was written:
 
 Still open:
 
-- **Cross-layer suspend UI:** behavior is decided (persistent) and suspend/resume
-  works from the relations panel. Still to settle: the affordance for
-  suspending *because* a relation crosses layers, and how that reads on the
-  canvas. Layers themselves have no UI yet.
+- **Layers have no UI.** Creating, renaming, reordering, hiding and locking
+  them is Phase 3 work. Until then every tool draws onto the first layer, so
+  a multi-layer document can only arrive by opening a file — which is enough
+  for the cross-layer affordance below to be real, but not enough to reach it
+  from a standing start.
 - **Import fidelity (remaining):** rounded rects, CSS class resolution, tolerance default, whether exports embed native JSON by default.
 - **Native file format:** JSON is decided, with a version field and a refusal to read a newer one; still to settle migrations and whether history is ever saved.
-- **Dimension placement:** annotations are positioned by rule (outward from the drawing's centre, repeats stacked). Letting the user drag one needs a field on the constraint, so it waits.
+- **Dimension placement:** annotations are positioned by rule (outward from the drawing's centre, repeats stacked; radial leaders fan out by a step each). Letting the user drag one needs a field on the constraint, so it waits.
 - **How two round things touch:** outside or inside is read from where the geometry currently sits, because the constraint does not record it. Dragging one circle through another can flip the meaning.
 - **Export styling:** deferred. Imported styles are preserved as opaque data in the meantime.
 
@@ -448,6 +455,7 @@ left as written; this is the ledger.
 | "Analytic or finite-difference Jacobian" | v1 residuals hand-derived; **v2 residuals from forward-mode autodiff** | Eight more derivations, each involving a normalised direction or a distance to a line, is where a sign error hides until a sketch quietly refuses to solve. Both are checked against finite differences |
 | Residuals implicitly all in px | Distance residuals in px; **angular residuals dimensionless** (sine or cosine of an angle) | Forcing an angle into px means choosing *which* length to scale by, and the answer would differ for a short line and a long one |
 | Tangent is one constraint | **Two formulations**, chosen by whether the two entities share a point | At a join, distance-to-line-equals-radius sits on the boundary of an inequality, so its gradient is zero and it removes no freedom. A slot reported 4 DOF until this was fixed |
+| Cross-layer suspend "for the geometry being clicked on" | The same, **except** when the selection touches no crossing: then the toggle acts on the whole document | Scoping strictly to the selection made the button disappear the moment the user clicked something unrelated, while the relation tying two layers together was still in the panel with its badge on. The count on the button always says exactly what a click will do |
 | Inference covers "horizontal, vertical, coincident, tangent" | Horizontal and vertical only | Coincident is already covered by reusing a clicked point, which shares it — a stronger statement. Tangent inference became possible only with Step 10 and is not wired up yet |
 | Dimensions have a placement | Placement is **derived**: outward from the drawing's centre, repeats stacked | Storing a user-chosen offset needs a field on the constraint, which belongs with the dimension-placement work |
 | (not mentioned) | A **drawing grid** with 1-2-5 adaptive spacing and snapping | The canvas needed somewhere to put things. Snapping is on in the app, off in the editor API |
@@ -495,3 +503,4 @@ left as written; this is the ledger.
 - 2026-09-22: Step 10 (the rest of the relation set) built: parallel, perpendicular, collinear, tangent, equal, concentric, midpoint and symmetric, with autodiff-derived Jacobians checked against finite differences. A slot now solves to 0 DOF.
 - 2026-09-22: Documentation pass. Marked what is built through the plan, added §9 recording every place the build differs from it, and wrote `SOLVING.md` explaining degrees of freedom, rank, and what the status colours mean, with each claim tied to the test that proves it.
 - 2026-09-22: Code-review pass. Fourteen findings fixed, each pinned by a test verified to fail without its fix: the id generator not advancing on `load` (which silently *overwrote* loaded geometry rather than colliding), shortcuts firing while typing in a dimension field, zero-gradient rows counted as rank deficiency, a per-constraint QR in the conflict finder that froze dragging, a grid that dropped an entire axis instead of coarsening, and a `viewBox` guard an order of magnitude below the precision it was printed at. `editor.ts` (907 lines) and `main.ts` (469) were split along their seams; `docs/PITFALLS.md` records the bug *classes* behind the findings.
+- 2026-09-22: Steps 11 and 13 built, completing Phase 2. Angle, radius, diameter and point–line distance dimensions, with reference (non-driving) dimensions alongside them; the angle residual is the wrapped angle error rather than its sine, because the sine's gradient vanishes a quarter turn from the target. Selecting a relation now highlights the geometry it acts on, and the cross-layer suspend affordance — the last thing Phase 0 left open — is a badge on the crossing rows plus one toggle. Layers still have no UI, so a crossing can only arrive by opening a file.
