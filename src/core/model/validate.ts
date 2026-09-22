@@ -9,6 +9,7 @@ import type { Id } from './ids';
 import {
   constraintRefs,
   entityPointIds,
+  type EntityKind,
   type PathRecord,
   type SketchDocument,
 } from './types';
@@ -22,6 +23,8 @@ export type IssueCode =
   | 'dangling-reference'
   /** A coordinate, radius or dimension value isn't a usable number. */
   | 'bad-number'
+  /** A dimension is attached to geometry that cannot carry it. */
+  | 'dimension-wrong-entity'
   /** A path member's entity sits on a different layer than the path. */
   | 'path-member-wrong-layer'
   /** Construction geometry is never exported, so it can't be in a path. */
@@ -32,6 +35,16 @@ export type IssueCode =
   | 'empty-subpath'
   /** layerOrder must list every layer exactly once and nothing else. */
   | 'layer-order-mismatch';
+
+/** Which entity kinds each entity-facing dimension can be attached to. */
+const DIMENSION_SHAPES: Partial<
+  Record<string, { readonly kinds: readonly EntityKind[]; readonly needs: string }>
+> = {
+  angle: { kinds: ['line'], needs: 'an angle is between two lines' },
+  radius: { kinds: ['circle', 'arc'], needs: 'only a circle or an arc has a radius' },
+  diameter: { kinds: ['circle', 'arc'], needs: 'only a circle or an arc has a diameter' },
+  'point-line-distance': { kinds: ['line'], needs: 'the distance is measured to a line' },
+};
 
 export interface ValidationIssue {
   readonly code: IssueCode;
@@ -91,6 +104,26 @@ export function validate(doc: SketchDocument): ValidationIssue[] {
     }
     if ('value' in constraint && !Number.isFinite(constraint.value)) {
       add('bad-number', constraint.id, `${constraint.kind} "${constraint.id}" has a non-finite value`);
+    }
+
+    // A dimension on geometry that cannot carry it would sit in the relations
+    // list removing no freedom, with nothing to say why — the same silent
+    // no-op the commands layer refuses at the point of creation. This catches
+    // a hand-edited file.
+    const wanted = DIMENSION_SHAPES[constraint.kind];
+    if (wanted !== undefined) {
+      // Through `refs`, not by reaching for `a`/`b`/`entity` per kind: the
+      // helper is the one place that knows what each constraint references.
+      for (const id of refs.entities) {
+        const entity = doc.entities[id];
+        if (entity !== undefined && !wanted.kinds.includes(entity.kind)) {
+          add(
+            'dimension-wrong-entity',
+            constraint.id,
+            `${constraint.kind} "${constraint.id}" is attached to a ${entity.kind}, but ${wanted.needs}`,
+          );
+        }
+      }
     }
   }
 

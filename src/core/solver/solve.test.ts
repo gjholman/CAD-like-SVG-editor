@@ -440,3 +440,210 @@ describe('solve: edge cases', () => {
     expect(doc).toEqual(before);
   });
 });
+
+describe('solve: the Step 11 dimensions', () => {
+  /**
+   * A hinge: one fixed line along +x, and a second line from the same corner
+   * whose far end is free. Six variables, minus a fix (2) and a coincidence
+   * built in by sharing the corner, leaves the second line free to swing and
+   * stretch — exactly 4 DOF, of which an angle removes one and a length
+   * another.
+   */
+  function hinge(constraints: Constraint[] = []): SketchDocument {
+    return {
+      version: 1,
+      points: {
+        o: { id: 'o', x: 0, y: 0 },
+        a: { id: 'a', x: 100, y: 0 },
+        b: { id: 'b', x: 70, y: 70 },
+      },
+      entities: {
+        lineA: { id: 'lineA', kind: 'line', p1: 'o', p2: 'a', layer: 'layer1', construction: false },
+        lineB: { id: 'lineB', kind: 'line', p1: 'o', p2: 'b', layer: 'layer1', construction: false },
+      },
+      constraints: Object.fromEntries(
+        [
+          { id: 'fix-o', kind: 'fix', point: 'o' },
+          { id: 'fix-a', kind: 'fix', point: 'a' },
+          ...constraints,
+        ].map((c) => [c.id, c as Constraint]),
+      ),
+      layers: { layer1: { id: 'layer1', name: 'Layer 1', visible: true, locked: false } },
+      layerOrder: ['layer1'],
+      paths: {},
+    };
+  }
+
+  /** The angle of lineB below the +x axis, in degrees, clockwise-positive. */
+  const angleOfB = (result: ReturnType<typeof solve>) => {
+    const b = result.positions['b']!;
+    return (Math.atan2(b.y, b.x) * 180) / Math.PI;
+  };
+
+  it('drives a line to the angle it is given', () => {
+    const doc = hinge([{ id: 'ang', kind: 'angle', a: 'lineA', b: 'lineB', value: 30 } as Constraint]);
+    const result = solve(doc);
+
+    expect(result.converged).toBe(true);
+    expect(angleOfB(result)).toBeCloseTo(30, 6);
+    // The free end can still slide along that direction, so one of the two
+    // remaining freedoms is gone.
+    expect(result.dof).toBe(1);
+  });
+
+  it('turns the geometry when the angle is changed', () => {
+    // The point of a parametric sketch: the number is the input.
+    const doc = hinge([{ id: 'ang', kind: 'angle', a: 'lineA', b: 'lineB', value: 30 } as Constraint]);
+    const turned = withValue(doc, 'ang', 75);
+    const result = solve(turned);
+
+    expect(result.converged).toBe(true);
+    expect(angleOfB(result)).toBeCloseTo(75, 6);
+  });
+
+  it('reaches a target on the far side of the wrap', () => {
+    // -170 degrees is ten degrees the other way; the residual has to take the
+    // short route or the solver walks nearly all the way round.
+    const doc = hinge([{ id: 'ang', kind: 'angle', a: 'lineA', b: 'lineB', value: -170 } as Constraint]);
+    const result = solve(doc);
+
+    expect(result.converged).toBe(true);
+    expect(Math.abs(angleOfB(result))).toBeCloseTo(170, 4);
+  });
+
+  it('pins a circle down with a radius, and again with a diameter', () => {
+    const circle = (dimension: Constraint): SketchDocument => ({
+      version: 1,
+      points: { c: { id: 'c', x: 10, y: 10 } },
+      entities: {
+        circ: { id: 'circ', kind: 'circle', center: 'c', radius: 20, layer: 'layer1', construction: false },
+      },
+      constraints: Object.fromEntries([
+        ['fix-c', { id: 'fix-c', kind: 'fix', point: 'c' } as Constraint],
+        [dimension.id, dimension],
+      ]),
+      layers: { layer1: { id: 'layer1', name: 'Layer 1', visible: true, locked: false } },
+      layerOrder: ['layer1'],
+      paths: {},
+    });
+
+    const byRadius = solve(circle({ id: 'r', kind: 'radius', entity: 'circ', value: 50 } as Constraint));
+    expect(byRadius.radii['circ']).toBeCloseTo(50, 9);
+    expect(byRadius.status).toBe('fully-defined');
+
+    const byDiameter = solve(circle({ id: 'd', kind: 'diameter', entity: 'circ', value: 100 } as Constraint));
+    expect(byDiameter.radii['circ']).toBeCloseTo(50, 9);
+    expect(byDiameter.status).toBe('fully-defined');
+  });
+
+  it('calls a radius and a diameter on the same circle redundant', () => {
+    // They say the same thing, so the second removes nothing.
+    const doc: SketchDocument = {
+      version: 1,
+      points: { c: { id: 'c', x: 0, y: 0 } },
+      entities: {
+        circ: { id: 'circ', kind: 'circle', center: 'c', radius: 20, layer: 'layer1', construction: false },
+      },
+      constraints: {
+        'fix-c': { id: 'fix-c', kind: 'fix', point: 'c' },
+        r: { id: 'r', kind: 'radius', entity: 'circ', value: 50 },
+        d: { id: 'd', kind: 'diameter', entity: 'circ', value: 100 },
+      },
+      layers: { layer1: { id: 'layer1', name: 'Layer 1', visible: true, locked: false } },
+      layerOrder: ['layer1'],
+      paths: {},
+    };
+    const result = solve(doc);
+
+    expect(result.status).toBe('over-defined');
+    expect(result.conflicts).toContain('r');
+    expect(result.conflicts).toContain('d');
+  });
+
+  it('holds a point a set distance off a line', () => {
+    const doc = hinge([
+      { id: 'pld', kind: 'point-line-distance', point: 'b', entity: 'lineA', value: 40 } as Constraint,
+    ]);
+    const result = solve(doc);
+
+    expect(result.converged).toBe(true);
+    // lineA runs along y = 0, so the distance is just |y|.
+    expect(Math.abs(result.positions['b']!.y)).toBeCloseTo(40, 6);
+    expect(result.dof).toBe(1);
+  });
+
+  it('keeps the point on the side it started', () => {
+    const doc = hinge([
+      { id: 'pld', kind: 'point-line-distance', point: 'b', entity: 'lineA', value: 40 } as Constraint,
+    ]);
+    // b starts below the line (y positive, since y is down).
+    expect(solve(doc).positions['b']!.y).toBeGreaterThan(0);
+
+    const above = { ...doc, points: { ...doc.points, b: { id: 'b', x: 70, y: -70 } } };
+    expect(solve(above).positions['b']!.y).toBeLessThan(0);
+  });
+});
+
+describe('solve: reference dimensions', () => {
+  it('removes no freedom, unlike the driving dimension it looks like', () => {
+    const { doc, corners } = rectangleFixture(480, 240);
+    const measured: Constraint = {
+      id: 'ref',
+      kind: 'distance',
+      p1: corners[0],
+      p2: corners[2],
+      value: 999, // deliberately wrong: a reference dimension drives nothing
+      reference: true,
+    };
+    const withReference = withConstraint(doc, measured);
+    const result = solve(withReference);
+
+    expect(result.status).toBe('fully-defined');
+    expect(result.dof).toBe(0);
+    expect(result.converged).toBe(true);
+    expect(result.conflicts).toEqual([]);
+    // The geometry is exactly where it was: the 999 was never an input.
+    expect(result.positions[corners[2]]!.x).toBeCloseTo(480, 9);
+    expect(result.positions[corners[2]]!.y).toBeCloseTo(240, 9);
+  });
+
+  it('is not the same as suspending the dimension', () => {
+    // Both are out of the solve, but a suspended dimension is expected back,
+    // so switching one off must still leave the sketch under defined.
+    const { doc, widthDimension } = rectangleFixture(480, 240);
+    const suspended = {
+      ...doc,
+      constraints: {
+        ...doc.constraints,
+        [widthDimension]: { ...doc.constraints[widthDimension]!, suspended: true } as Constraint,
+      },
+    };
+    expect(solve(suspended).dof).toBe(1);
+
+    const referenced = {
+      ...doc,
+      constraints: {
+        ...doc.constraints,
+        [widthDimension]: { ...doc.constraints[widthDimension]!, reference: true } as Constraint,
+      },
+    };
+    expect(solve(referenced).dof).toBe(1);
+  });
+
+  it('never appears in a conflict, however wrong its number is', () => {
+    const { doc, corners, widthDimension } = rectangleFixture(480, 240);
+    const contradiction: Constraint = {
+      id: 'ref',
+      kind: 'horizontal-distance',
+      p1: corners[0],
+      p2: corners[1],
+      value: 300,
+      reference: true,
+    };
+    const result = solve(withConstraint(doc, contradiction));
+
+    expect(result.status).toBe('fully-defined');
+    expect(result.conflicts).not.toContain('ref');
+    expect(result.conflicts).not.toContain(widthDimension);
+  });
+});

@@ -74,6 +74,13 @@ export type Entity = LineEntity | CircleEntity | ArcEntity;
 
 export type EntityKind = Entity['kind'];
 
+/**
+ * What every constraint carries, whatever it relates.
+ *
+ * Every constraint extends this — three of them once re-declared `id` and
+ * `suspended` by hand instead, and adding a field to the base then silently
+ * missed them.
+ */
 interface ConstraintBase {
   readonly id: Id;
   /**
@@ -82,6 +89,17 @@ interface ConstraintBase {
    * works, and the suspension is persistent (a plan decision).
    */
   readonly suspended?: boolean;
+  /**
+   * A *reference* dimension measures without constraining: it is shown, it
+   * updates as the geometry moves, and the solver never sees it. Only
+   * meaningful on a dimension; everything else ignores it.
+   *
+   * This is not the same as suspended. A suspended constraint is a driving one
+   * temporarily switched off and expected to come back; a reference dimension
+   * is permanently a read-out, and drawing the two the same way would hide
+   * which is which.
+   */
+  readonly reference?: boolean;
 }
 
 /** Two points occupy the same location. Removes 2 DOF. */
@@ -148,15 +166,66 @@ export interface VerticalDistanceConstraint extends ConstraintBase {
 }
 
 /**
+ * Driving dimension: the angle between two lines, in **degrees**.
+ *
+ * Stored in degrees because that is what the user types; the residual works in
+ * radians. The angle is measured from line `a` to line `b`, following each
+ * line's own direction (p1 to p2), and is positive clockwise like every other
+ * angle in this model, because y is down.
+ *
+ * Reversing a line therefore changes the angle by 180°. That is a real
+ * property of directed lines rather than a wrinkle to paper over: the UI
+ * measures the angle as it currently stands and stores that.
+ */
+export interface AngleConstraint extends ConstraintBase {
+  readonly kind: 'angle';
+  readonly a: Id;
+  readonly b: Id;
+  /** Degrees, clockwise-positive. */
+  readonly value: number;
+}
+
+/** Driving dimension: the radius of a circle or arc, in px. */
+export interface RadiusConstraint extends ConstraintBase {
+  readonly kind: 'radius';
+  readonly entity: Id;
+  readonly value: number;
+}
+
+/**
+ * Driving dimension: the diameter of a circle or arc, in px.
+ *
+ * Exactly as strong as a radius dimension — it removes the same one degree of
+ * freedom — and kept separate only so the drawing reads the way the user meant
+ * it. Circles are conventionally dimensioned by diameter and arcs by radius.
+ */
+export interface DiameterConstraint extends ConstraintBase {
+  readonly kind: 'diameter';
+  readonly entity: Id;
+  readonly value: number;
+}
+
+/**
+ * Driving dimension: the perpendicular distance from a point to a line, in px.
+ *
+ * Unsigned, as on a drawing: which side the point sits is not part of the
+ * dimension, and the solver keeps it on the side it started.
+ */
+export interface PointLineDistanceConstraint extends ConstraintBase {
+  readonly kind: 'point-line-distance';
+  readonly point: Id;
+  readonly entity: Id;
+  readonly value: number;
+}
+
+/**
  * Relations between two entities rather than between points.
  *
  * The v1 set deliberately referenced points only, which kept the solver's
  * variable mapping simple. These cannot: "parallel" is a statement about two
  * lines' directions, and resolving it to a point pair would lose that.
  */
-interface EntityPairBase {
-  readonly id: Id;
-  readonly suspended?: boolean;
+interface EntityPairBase extends ConstraintBase {
   readonly a: Id;
   readonly b: Id;
 }
@@ -195,23 +264,19 @@ export interface ConcentricConstraint extends EntityPairBase {
 }
 
 /** A point sits halfway along a line. Removes 2 DOF. */
-export interface MidpointConstraint {
-  readonly id: Id;
-  readonly suspended?: boolean;
+export interface MidpointConstraint extends ConstraintBase {
+  readonly kind: 'midpoint';
   readonly point: Id;
   readonly entity: Id;
-  readonly kind: 'midpoint';
 }
 
 /** Two points mirror each other about a line. Removes 2 DOF. */
-export interface SymmetricConstraint {
-  readonly id: Id;
-  readonly suspended?: boolean;
+export interface SymmetricConstraint extends ConstraintBase {
+  readonly kind: 'symmetric';
   readonly p1: Id;
   readonly p2: Id;
   /** The line they are symmetric about. */
   readonly entity: Id;
-  readonly kind: 'symmetric';
 }
 
 /** The v1 set, plus the v2 relations from Phase 2. */
@@ -224,6 +289,10 @@ export type Constraint =
   | DistanceConstraint
   | HorizontalDistanceConstraint
   | VerticalDistanceConstraint
+  | AngleConstraint
+  | RadiusConstraint
+  | DiameterConstraint
+  | PointLineDistanceConstraint
   | ParallelConstraint
   | PerpendicularConstraint
   | CollinearConstraint
@@ -235,11 +304,43 @@ export type Constraint =
 
 export type ConstraintKind = Constraint['kind'];
 
-/** Constraints that carry a driving number. */
+/** Constraints that carry a number, driving or reference. */
 export type DimensionConstraint =
   | DistanceConstraint
   | HorizontalDistanceConstraint
-  | VerticalDistanceConstraint;
+  | VerticalDistanceConstraint
+  | AngleConstraint
+  | RadiusConstraint
+  | DiameterConstraint
+  | PointLineDistanceConstraint;
+
+export type DimensionKind = DimensionConstraint['kind'];
+
+/** Every kind that carries a number, for the checks that need the list. */
+export const DIMENSION_KINDS = [
+  'distance',
+  'horizontal-distance',
+  'vertical-distance',
+  'angle',
+  'radius',
+  'diameter',
+  'point-line-distance',
+] as const satisfies readonly DimensionKind[];
+
+export function isDimensionConstraint(constraint: Constraint): constraint is DimensionConstraint {
+  return (DIMENSION_KINDS as readonly string[]).includes(constraint.kind);
+}
+
+/**
+ * Does this constraint remove any freedom?
+ *
+ * Two things make a constraint invisible to the solver, and they mean
+ * different things: a suspended constraint is switched off for now, and a
+ * reference dimension never constrained anything in the first place.
+ */
+export function isDriving(constraint: Constraint): boolean {
+  return constraint.suspended !== true && constraint.reference !== true;
+}
 
 /**
  * Presentation attributes carried through import and export untouched.
@@ -326,7 +427,11 @@ export function constraintRefs(constraint: Constraint): {
       return { points: [constraint.point], entities: [] };
     case 'point-on':
     case 'midpoint':
+    case 'point-line-distance':
       return { points: [constraint.point], entities: [constraint.entity] };
+    case 'radius':
+    case 'diameter':
+      return { points: [], entities: [constraint.entity] };
     case 'symmetric':
       return { points: [constraint.p1, constraint.p2], entities: [constraint.entity] };
     case 'coincident':
@@ -342,6 +447,7 @@ export function constraintRefs(constraint: Constraint): {
     case 'tangent':
     case 'equal':
     case 'concentric':
+    case 'angle':
       return { points: [], entities: [constraint.a, constraint.b] };
   }
 }

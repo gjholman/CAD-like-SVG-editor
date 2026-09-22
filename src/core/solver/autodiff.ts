@@ -89,6 +89,28 @@ export function hypot(x: Dual, y: Dual): Dual {
 }
 
 /**
+ * atan2(y, x), the angle of a direction. d(atan2) = (x·dy − y·dx) / (x² + y²)
+ *
+ * An angle dimension could be written as the sine of the error instead, which
+ * would avoid this function — but the derivative of a sine vanishes when the
+ * error is a quarter turn, so a line that starts 90° from where it is wanted
+ * would sit on a zero gradient and never move. The angle itself has a
+ * derivative that never vanishes.
+ *
+ * Undefined at the origin, where there is no angle; the caller guards.
+ */
+export function atan2(y: Dual, x: Dual): Dual {
+  const squared = x.value * x.value + y.value * y.value;
+  if (squared === 0) {
+    throw new Error('autodiff: atan2 at the origin — the caller should have guarded the degenerate case');
+  }
+  return {
+    value: Math.atan2(y.value, x.value),
+    grad: combine(y.grad, x.value / squared, x.grad, -y.value / squared),
+  };
+}
+
+/**
  * |a|, for residuals that measure a distance regardless of side (tangency is
  * the same whichever side of the line the centre sits on). Not differentiable
  * at zero, where the sign is undefined; the caller guards that case.

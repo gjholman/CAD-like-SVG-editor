@@ -16,6 +16,7 @@
 import {
   abs,
   add,
+  atan2,
   constant,
   div,
   hypot,
@@ -119,6 +120,45 @@ export function v2ConstraintRows(
         row(id, distanceToLine(midpoint(p1, p2), a, axis)),
         row(id, dot(unit(chord), unit(axis))),
       ];
+    }
+
+    case 'angle': {
+      const a = lineDirection(constraint.a, doc, point);
+      const b = lineDirection(constraint.b, doc, point);
+      if (a === undefined || b === undefined) return [zero(id)];
+      if (isDegenerate(a) || isDegenerate(b)) return [zero(id)];
+
+      // The angle error itself, in radians, wrapped to the nearest turn. The
+      // wrap is a constant shift, so it does not touch the derivative — and
+      // without it a line 359° from where it is wanted would be dragged the
+      // long way round instead of one degree back.
+      const target = (constraint.value * Math.PI) / 180;
+      const turned = sub(sub(atan2(b.y, b.x), atan2(a.y, a.x)), constant(target));
+      return [row(id, add(turned, constant(-wrapTurns(turned.value))))];
+    }
+
+    case 'radius':
+    case 'diameter': {
+      const radius = radiusOf(constraint.entity, doc, variables, x, point);
+      if (radius === undefined) return [zero(id)];
+      // A diameter dimension is a radius dimension with the number doubled:
+      // the same single degree of freedom, said the way the drawing reads.
+      const wanted = constraint.kind === 'diameter' ? constraint.value / 2 : constraint.value;
+      return [row(id, sub(radius, constant(wanted)))];
+    }
+
+    case 'point-line-distance': {
+      const line = doc.entities[constraint.entity];
+      if (line?.kind !== 'line') return [zero(id)];
+      const a = point(line.p1);
+      const axis = direction(a, point(line.p2));
+      if (isDegenerate(axis)) return [zero(id)];
+
+      // Unsigned, as on a drawing. `abs` is not differentiable where the point
+      // sits *on* the line, but a distance dimension of zero is a coincidence
+      // constraint written the hard way, and the solver keeps the point on the
+      // side it started.
+      return [row(id, sub(abs(distanceToLine(point(constraint.point), a, axis)), constant(constraint.value)))];
     }
 
     case 'tangent':
@@ -243,6 +283,29 @@ function lineDirection(
   const entity = doc.entities[entityId];
   if (entity?.kind !== 'line') return undefined;
   return direction(point(entity.p1), point(entity.p2));
+}
+
+/** Whole turns to subtract to bring an angle error into (-pi, pi]. */
+function wrapTurns(radians: number): number {
+  return Math.round(radians / (Math.PI * 2)) * Math.PI * 2;
+}
+
+/** Too short to have a direction worth differentiating. */
+function isDegenerate(v: Vec): boolean {
+  return Math.hypot(v.x.value, v.y.value) < DEGENERATE;
+}
+
+/** A circle's or an arc's radius. Undefined for anything else. */
+function radiusOf(
+  entityId: Id,
+  doc: SketchDocument,
+  variables: VariableMap,
+  x: Float64Array,
+  point: (pointId: Id) => Vec,
+): Dual | undefined {
+  const entity = doc.entities[entityId];
+  if (entity === undefined || entity.kind === 'line') return undefined;
+  return sizeOf(entityId, doc, variables, x, point);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
 import { removeEntity } from './edits';
-import { createEmptyDocument } from './types';
+import { createEmptyDocument, type Constraint, type SketchDocument } from './types';
 import { isValid, validate, type IssueCode } from './validate';
 
 /**
@@ -238,5 +238,67 @@ describe('v2 relations', () => {
 
     expect(trimmed.constraints['c-par']).toBeUndefined();
     expect(validate(trimmed)).toEqual([]);
+  });
+});
+
+describe('dimensions on the wrong geometry', () => {
+  /** A line and a circle, to attach dimensions to. */
+  const shapes = (constraint: Constraint): SketchDocument => ({
+    version: 1,
+    points: {
+      p1: { id: 'p1', x: 0, y: 0 },
+      p2: { id: 'p2', x: 100, y: 0 },
+      c: { id: 'c', x: 50, y: 50 },
+    },
+    entities: {
+      line1: { id: 'line1', kind: 'line', p1: 'p1', p2: 'p2', layer: 'layer1', construction: false },
+      circ1: { id: 'circ1', kind: 'circle', center: 'c', radius: 25, layer: 'layer1', construction: false },
+    },
+    constraints: { [constraint.id]: constraint },
+    paths: {},
+    layers: { layer1: { id: 'layer1', name: 'Layer 1', visible: true, locked: false } },
+    layerOrder: ['layer1'],
+  });
+
+  it('rejects a radius on a line', () => {
+    const issues = validate(shapes({ id: 'd1', kind: 'radius', entity: 'line1', value: 10 }));
+    expect(issues.map((i) => i.code)).toEqual(['dimension-wrong-entity']);
+    expect(issues[0]!.message).toContain('radius');
+  });
+
+  it('rejects a diameter on a line', () => {
+    expect(validate(shapes({ id: 'd1', kind: 'diameter', entity: 'line1', value: 10 }))).toHaveLength(1);
+  });
+
+  it('rejects an angle to a circle', () => {
+    const issues = validate(shapes({ id: 'd1', kind: 'angle', a: 'line1', b: 'circ1', value: 30 }));
+    expect(issues.map((i) => i.code)).toEqual(['dimension-wrong-entity']);
+  });
+
+  it('rejects a point-to-line distance measured to a circle', () => {
+    const issues = validate(shapes({ id: 'd1', kind: 'point-line-distance', point: 'c', entity: 'circ1', value: 30 }));
+    expect(issues.map((i) => i.code)).toEqual(['dimension-wrong-entity']);
+  });
+
+  it('accepts each of them on the geometry that can carry it', () => {
+    expect(validate(shapes({ id: 'd1', kind: 'radius', entity: 'circ1', value: 25 }))).toEqual([]);
+    expect(validate(shapes({ id: 'd1', kind: 'diameter', entity: 'circ1', value: 50 }))).toEqual([]);
+    expect(validate(shapes({ id: 'd1', kind: 'angle', a: 'line1', b: 'line1', value: 0 }))).toEqual([]);
+    expect(
+      validate(shapes({ id: 'd1', kind: 'point-line-distance', point: 'c', entity: 'line1', value: 50 })),
+    ).toEqual([]);
+  });
+
+  it('still catches a non-finite value on a new dimension kind', () => {
+    const issues = validate(shapes({ id: 'd1', kind: 'radius', entity: 'circ1', value: Number.NaN }));
+    expect(issues.map((i) => i.code)).toEqual(['bad-number']);
+  });
+
+  it('has nothing to say about a reference dimension being wrong', () => {
+    // A reference dimension's number is an output, so any finite value is
+    // legal however far from the geometry it currently is.
+    expect(
+      validate(shapes({ id: 'd1', kind: 'radius', entity: 'circ1', value: 999, reference: true })),
+    ).toEqual([]);
   });
 });

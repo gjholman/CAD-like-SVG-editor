@@ -32,6 +32,7 @@ import {
 } from './linalg';
 import { arcRows, assemble, constraintRows, pinRows, worstResidual, type ConstraintRow } from './residuals';
 import { entityVariables, initialVector, mapVariables, type VariableMap } from './variables';
+import { isDriving } from '../model';
 import type { Id, SketchDocument } from '../model';
 
 export type SketchStatus = 'fully-defined' | 'under-defined' | 'over-defined' | 'unsolved';
@@ -98,9 +99,12 @@ export function solve(doc: SketchDocument, options: SolveOptions = {}): SolveRes
   const variables = mapVariables(doc);
   const x = initialVector(doc, variables);
 
-  // Suspended constraints stay in the document but are excluded from the
-  // solve, so geometry that relied on one correctly goes back to under defined.
-  const active = Object.values(doc.constraints).filter((constraint) => constraint.suspended !== true);
+  // Two kinds of constraint stay in the document but out of the solve, and
+  // they are not the same thing: a *suspended* one is switched off for now
+  // (the cross-layer toggle), while a *reference* dimension never constrained
+  // anything — it is a measurement that follows the geometry. Either way the
+  // geometry that would have relied on it is correctly under defined.
+  const active = Object.values(doc.constraints).filter(isDriving);
   const pinned = Object.entries(options.pinned ?? {});
 
   // Arcs carry a structural constraint of their own: both endpoints the same
