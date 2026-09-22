@@ -284,8 +284,9 @@ function dimensionsGroup(
   const group = element('g', { class: 'sketch-dimensions' });
 
   for (const dimension of dimensionGeometry(doc, positions, viewport)) {
-    const classes = ['dimension'];
+    const classes = ['dimension', `is-${dimension.shape}`];
     if (dimension.suspended) classes.push('is-suspended');
+    if (dimension.reference) classes.push('is-reference');
     if (conflicted.has(dimension.id)) classes.push('is-over');
     if (selection.has(dimension.id)) classes.push('is-selected');
 
@@ -305,34 +306,55 @@ function dimensionParts(dimension: DimensionGeometry, viewport: Viewport): Eleme
   const parts: Element[] = [];
 
   // Extension lines run from the measured points out to the dimension line.
-  for (const [point, end] of [
-    [from, lineFrom],
-    [to, lineTo],
-  ] as const) {
+  // A leader drawn straight on the geometry (a radius, a gap) has none: there
+  // is no offset to bridge.
+  if (dimension.extensions) {
+    for (const [point, end] of [
+      [from, lineFrom],
+      [to, lineTo],
+    ] as const) {
+      parts.push(
+        element('line', {
+          class: 'dim-ext',
+          x1: point.x,
+          y1: point.y,
+          x2: end.x,
+          y2: end.y,
+          'vector-effect': 'non-scaling-stroke',
+        }),
+      );
+    }
+  }
+
+  if (dimension.arc !== undefined) {
+    // An angle sweeps an arc rather than running along a line.
+    parts.push(
+      element('path', {
+        class: 'dim-line',
+        d: arcPathData(dimension.arc),
+        fill: 'none',
+        'vector-effect': 'non-scaling-stroke',
+      }),
+    );
+  } else {
     parts.push(
       element('line', {
-        class: 'dim-ext',
-        x1: point.x,
-        y1: point.y,
-        x2: end.x,
-        y2: end.y,
+        class: 'dim-line',
+        x1: lineFrom.x,
+        y1: lineFrom.y,
+        x2: lineTo.x,
+        y2: lineTo.y,
         'vector-effect': 'non-scaling-stroke',
       }),
     );
   }
 
-  parts.push(
-    element('line', {
-      class: 'dim-line',
-      x1: lineFrom.x,
-      y1: lineFrom.y,
-      x2: lineTo.x,
-      y2: lineTo.y,
-      'vector-effect': 'non-scaling-stroke',
-    }),
-    element('path', { class: 'dim-arrow', d: arrowPath(lineFrom, lineTo, viewport) }),
-    element('path', { class: 'dim-arrow', d: arrowPath(lineTo, lineFrom, viewport) }),
-  );
+  // The arrowhead at `lineTo` always points at measured geometry. The one at
+  // `lineFrom` does not on a radius, whose other end is the centre point.
+  parts.push(element('path', { class: 'dim-arrow', d: arrowPath(lineTo, lineFrom, viewport) }));
+  if (dimension.arrows === 2) {
+    parts.push(element('path', { class: 'dim-arrow', d: arrowPath(lineFrom, lineTo, viewport) }));
+  }
 
   const text = element('text', {
     class: 'dim-text',

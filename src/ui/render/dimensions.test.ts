@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
 import { solve } from '../../core/solver';
 import {
+  addArc,
   addConstraint,
+  addEntity,
   addLine,
   addPoint,
   compose,
@@ -115,5 +117,170 @@ describe('dimensionGeometry', () => {
 
     // Four times the zoom, a quarter of the world-space offset.
     expect(gapAt(near)).toBeCloseTo(gapAt(far) / 4, 6);
+  });
+});
+
+describe('the Step 11 annotations', () => {
+  /** A right-angled wedge, a circle and an arc, all at tidy coordinates. */
+  const shapes = compose(
+    addPoint('o', 0, 0),
+    addPoint('ax', 100, 0),
+    addPoint('bx', 0, 100),
+    addPoint('c', 300, 0),
+    addPoint('ac', 600, 0),
+    addPoint('as', 660, 0),
+    addPoint('ae', 600, 60),
+    addLine('lineA', 'o', 'ax', 'layer1'),
+    addLine('lineB', 'o', 'bx', 'layer1'),
+    addEntity({ id: 'circ', kind: 'circle', center: 'c', radius: 40, layer: 'layer1', construction: false }),
+    addArc('arc1', 'ac', 'as', 'ae', 'layer1'),
+  )(createEmptyDocument());
+
+  const laidOut = (constraint: Constraint, doc = shapes) =>
+    dimensionGeometry(addConstraint(constraint)(doc), doc.points, IDENTITY_VIEWPORT)[0];
+
+  describe('an angle', () => {
+    const angle = laidOut({ id: 'a1', kind: 'angle', a: 'lineA', b: 'lineB', value: 90 })!;
+
+    it('sweeps an arc around where the lines cross', () => {
+      expect(angle.shape).toBe('angular');
+      expect(angle.arc).toBeDefined();
+      expect(angle.arc!.centre).toEqual({ x: 0, y: 0 });
+      expect(angle.arc!.sweep).toBeCloseTo(Math.PI / 2, 9);
+    });
+
+    it('reads in degrees, with the sign the geometry has', () => {
+      expect(angle.label).toBe('90°');
+      const other = laidOut({ id: 'a1', kind: 'angle', a: 'lineB', b: 'lineA', value: -90 })!;
+      expect(other.label).toBe('-90°');
+    });
+
+    it('puts its label outside the arc, between the two lines', () => {
+      // Halfway round a quarter turn from +x is 45 degrees, and y is down.
+      expect(angle.labelAt.x).toBeGreaterThan(0);
+      expect(angle.labelAt.y).toBeGreaterThan(0);
+      expect(Math.hypot(angle.labelAt.x, angle.labelAt.y)).toBeGreaterThan(angle.arc!.radius);
+    });
+
+    it('is not drawn at all between parallel lines', () => {
+      // They have no vertex, and inventing one off at infinity is worse than
+      // drawing nothing. The constraint itself stays perfectly legal.
+      const parallel = compose(
+        addPoint('p1', 0, 0),
+        addPoint('p2', 100, 0),
+        addPoint('p3', 0, 50),
+        addPoint('p4', 100, 50),
+        addLine('l1', 'p1', 'p2', 'layer1'),
+        addLine('l2', 'p3', 'p4', 'layer1'),
+      )(createEmptyDocument());
+
+      expect(laidOut({ id: 'a1', kind: 'angle', a: 'l1', b: 'l2', value: 0 }, parallel)).toBeUndefined();
+    });
+
+    it('finds the vertex even when the segments do not actually touch', () => {
+      // The angle is between the *lines*, so the arc goes where they would
+      // cross if extended.
+      const apart = compose(
+        addPoint('p1', 100, 0),
+        addPoint('p2', 200, 0),
+        addPoint('p3', 0, 100),
+        addPoint('p4', 0, 200),
+        addLine('l1', 'p1', 'p2', 'layer1'),
+        addLine('l2', 'p3', 'p4', 'layer1'),
+      )(createEmptyDocument());
+
+      const laid = laidOut({ id: 'a1', kind: 'angle', a: 'l1', b: 'l2', value: 90 }, apart)!;
+      expect(laid.arc!.centre.x).toBeCloseTo(0, 9);
+      expect(laid.arc!.centre.y).toBeCloseTo(0, 9);
+    });
+  });
+
+  describe('a radius and a diameter', () => {
+    const radius = laidOut({ id: 'r1', kind: 'radius', entity: 'arc1', value: 60 })!;
+    const diameter = laidOut({ id: 'd1', kind: 'diameter', entity: 'circ', value: 80 })!;
+
+    it('are leaders on the geometry, with no extension lines', () => {
+      expect(radius.shape).toBe('radial');
+      expect(radius.extensions).toBe(false);
+      expect(diameter.extensions).toBe(false);
+    });
+
+    it('run from the centre to the rim, and rim to rim', () => {
+      // toMatchObject, not toEqual: a position that came from the document
+      // rather than the solver is a stored Point, so it carries its own id.
+      expect(radius.lineFrom).toMatchObject({ x: 600, y: 0 });
+      expect(Math.hypot(radius.lineTo.x - 600, radius.lineTo.y)).toBeCloseTo(60, 9);
+
+      // A diameter crosses the whole circle, so its ends are 2r apart.
+      expect(Math.hypot(diameter.lineTo.x - diameter.lineFrom.x, diameter.lineTo.y - diameter.lineFrom.y))
+        .toBeCloseTo(80, 9);
+    });
+
+    it('give a radius one arrowhead and a diameter two', () => {
+      // A radius' other end is the centre, which is not a measured edge.
+      expect(radius.arrows).toBe(1);
+      expect(diameter.arrows).toBe(2);
+    });
+
+    it('carry the prefix that says which is which', () => {
+      expect(radius.label).toBe('R60');
+      expect(diameter.label).toBe('⌀80');
+    });
+
+    it('fan out rather than stack on top of each other', () => {
+      const both = dimensionGeometry(
+        compose(
+          addConstraint({ id: 'r1', kind: 'radius', entity: 'circ', value: 40 }),
+          addConstraint({ id: 'p1', kind: 'point-on', point: 'o', entity: 'circ' }),
+        )(shapes),
+        shapes.points,
+        IDENTITY_VIEWPORT,
+      );
+      expect(both).toHaveLength(1);
+    });
+  });
+
+  describe('a point-to-line distance', () => {
+    const gap = laidOut({ id: 'g1', kind: 'point-line-distance', point: 'bx', entity: 'lineA', value: 100 })!;
+
+    it('runs from the point to the foot of the perpendicular', () => {
+      // lineA lies along y = 0, so the foot of (0,100) is the origin.
+      expect(gap.lineFrom).toMatchObject({ x: 0, y: 100 });
+      expect(gap.lineTo.x).toBeCloseTo(0, 9);
+      expect(gap.lineTo.y).toBeCloseTo(0, 9);
+    });
+
+    it('needs no extension line when the foot is on the segment', () => {
+      expect(gap.extensions).toBe(false);
+    });
+
+    it('extends the line when the foot falls beyond its end', () => {
+      // The measurement is to the infinite line, so the drawing has to show
+      // where that is rather than leaving the dimension hanging in space.
+      const beyond = laidOut(
+        { id: 'g1', kind: 'point-line-distance', point: 'bx', entity: 'lineA', value: 100 },
+        compose(addPoint('bx', -200, 100))(shapes),
+      )!;
+      expect(beyond.extensions).toBe(true);
+    });
+  });
+
+  describe('a reference dimension', () => {
+    it('brackets its number, which is the only thing that marks it', () => {
+      const driving = laidOut({ id: 'r1', kind: 'radius', entity: 'circ', value: 40 })!;
+      const measured = laidOut({ id: 'r1', kind: 'radius', entity: 'circ', value: 40, reference: true })!;
+
+      expect(driving.label).toBe('R40');
+      expect(measured.label).toBe('(R40)');
+      expect(measured.reference).toBe(true);
+      expect(driving.reference).toBe(false);
+    });
+
+    it('is drawn, unlike a constraint the solver ignores for other reasons', () => {
+      // Being out of the solve is not a reason to be invisible: the whole
+      // point of a reference dimension is that you can read it.
+      const measured = laidOut({ id: 'd1', kind: 'distance', p1: 'o', p2: 'ax', value: 100, reference: true });
+      expect(measured).toBeDefined();
+    });
   });
 });

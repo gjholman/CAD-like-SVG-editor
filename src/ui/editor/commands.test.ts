@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
-import { addLine, addPoint, compose, createEmptyDocument, createIdGenerator, validate } from '../../core/model';
+import {
+  addArc,
+  addConstraint,
+  addEntity,
+  addLine,
+  addPoint,
+  compose,
+  createEmptyDocument,
+  createIdGenerator,
+  validate,
+  type Id,
+} from '../../core/model';
 import {
   canApplyRelation,
   describeSelection,
@@ -9,6 +20,7 @@ import {
   pointPair,
   relationEdit,
   setDimensionValue,
+  setReference,
   setSuspended,
 } from './commands';
 
@@ -114,9 +126,10 @@ describe('dimensionPlan', () => {
   it('measures a mostly-horizontal pair as a width', () => {
     expect(dimensionPlan(twoPoints, ['p1', 'p2'])).toEqual({
       kind: 'horizontal-distance',
-      p1: 'p1',
-      p2: 'p2',
+      points: ['p1', 'p2'],
+      entities: [],
       value: 100,
+      label: '100',
     });
   });
 
@@ -190,5 +203,198 @@ describe('setSuspended', () => {
     expect(off.constraints[widthDimension]!.suspended).toBe(true);
     expect(setSuspended(widthDimension, true)(off)).toBe(off);
     expect(setSuspended(widthDimension, false)(off).constraints[widthDimension]!.suspended).toBe(false);
+  });
+});
+
+describe('dimensionPlan: what the pick decides', () => {
+  /** A wedge, a circle and an arc, to pick from. */
+  const shapes = compose(
+    addPoint('o', 0, 0),
+    addPoint('ax', 100, 0),
+    addPoint('bx', 0, 100),
+    addPoint('c', 300, 0),
+    addPoint('ac', 500, 0),
+    addPoint('as', 560, 0),
+    addPoint('ae', 500, 60),
+    addLine('lineA', 'o', 'ax', 'layer1'),
+    addLine('lineB', 'o', 'bx', 'layer1'),
+    addEntity({ id: 'circ', kind: 'circle', center: 'c', radius: 40, layer: 'layer1', construction: false }),
+    addArc('arc1', 'ac', 'as', 'ae', 'layer1'),
+  )(createEmptyDocument());
+
+  it('reads two lines as the angle between them', () => {
+    // y is down, so lineB at (0,100) is 90 degrees clockwise from lineA.
+    expect(dimensionPlan(shapes, ['lineA', 'lineB'])).toMatchObject({
+      kind: 'angle',
+      entities: ['lineA', 'lineB'],
+      value: 90,
+      label: '90°',
+    });
+  });
+
+  it('measures the angle the other way round when picked the other way round', () => {
+    expect(dimensionPlan(shapes, ['lineB', 'lineA'])).toMatchObject({ kind: 'angle', value: -90 });
+  });
+
+  it('gives an angle in (-180, 180], the number you would read off a drawing', () => {
+    const wide = compose(
+      addPoint('o', 0, 0),
+      addPoint('ax', 100, 0),
+      addPoint('bx', -100, -10),
+      addLine('lineA', 'o', 'ax', 'layer1'),
+      addLine('lineB', 'o', 'bx', 'layer1'),
+    )(createEmptyDocument());
+    const value = dimensionPlan(wide, ['lineA', 'lineB'])!.value;
+    expect(value).toBeGreaterThan(-180);
+    expect(value).toBeLessThanOrEqual(180);
+  });
+
+  it('dimensions a circle by diameter, as a drawing does', () => {
+    expect(dimensionPlan(shapes, ['circ'])).toMatchObject({
+      kind: 'diameter',
+      entities: ['circ'],
+      value: 80,
+      label: '⌀80',
+    });
+  });
+
+  it('dimensions an arc by radius, as a drawing does', () => {
+    expect(dimensionPlan(shapes, ['arc1'])).toMatchObject({
+      kind: 'radius',
+      entities: ['arc1'],
+      value: 60,
+      label: 'R60',
+    });
+  });
+
+  it('reads a point and a line as the distance between them', () => {
+    expect(dimensionPlan(shapes, ['bx', 'lineA'])).toMatchObject({
+      kind: 'point-line-distance',
+      points: ['bx'],
+      entities: ['lineA'],
+      value: 100,
+    });
+  });
+
+  it('still reads a single line as its own length', () => {
+    expect(dimensionPlan(shapes, ['lineA'])).toMatchObject({ kind: 'horizontal-distance', value: 100 });
+  });
+
+  it('has nothing to offer for a selection it cannot read', () => {
+    expect(dimensionPlan(shapes, [])).toBeUndefined();
+    expect(dimensionPlan(shapes, ['circ', 'arc1', 'lineA'])).toBeUndefined();
+    expect(dimensionPlan(shapes, ['circ', 'lineA'])).toBeUndefined(); // no angle to a circle
+  });
+
+  it('measures from solved positions rather than stored ones', () => {
+    const stretched = dimensionPlan(shapes, ['arc1'], {
+      ac: { x: 500, y: 0 },
+      as: { x: 600, y: 0 },
+      ae: { x: 500, y: 100 },
+    });
+    expect(stretched).toMatchObject({ kind: 'radius', value: 100 });
+  });
+});
+
+describe('dimensionEdit: the new kinds', () => {
+  const shapes = compose(
+    addPoint('o', 0, 0),
+    addPoint('ax', 100, 0),
+    addPoint('bx', 0, 100),
+    addPoint('c', 300, 0),
+    addLine('lineA', 'o', 'ax', 'layer1'),
+    addLine('lineB', 'o', 'bx', 'layer1'),
+    addEntity({ id: 'circ', kind: 'circle', center: 'c', radius: 40, layer: 'layer1', construction: false }),
+  )(createEmptyDocument());
+
+  const applied = (selection: Id[], options?: { reference?: boolean }) => {
+    const edit = dimensionEdit(shapes, selection, createIdGenerator(), undefined, options);
+    return edit === undefined ? undefined : Object.values(edit(shapes).constraints)[0];
+  };
+
+  it('builds an angle constraint naming both lines', () => {
+    expect(applied(['lineA', 'lineB'])).toMatchObject({ kind: 'angle', a: 'lineA', b: 'lineB', value: 90 });
+  });
+
+  it('builds a diameter constraint naming the circle', () => {
+    expect(applied(['circ'])).toMatchObject({ kind: 'diameter', entity: 'circ', value: 80 });
+  });
+
+  it('builds a point-line distance naming both', () => {
+    expect(applied(['bx', 'lineA'])).toMatchObject({
+      kind: 'point-line-distance',
+      point: 'bx',
+      entity: 'lineA',
+      value: 100,
+    });
+  });
+
+  it('marks a reference dimension as one when asked', () => {
+    expect(applied(['circ'], { reference: true })).toMatchObject({ kind: 'diameter', reference: true });
+    expect(applied(['circ'])).not.toHaveProperty('reference');
+  });
+
+  it('refuses a second dimension of the same kind on the same geometry', () => {
+    const once = dimensionEdit(shapes, ['circ'], createIdGenerator())!(shapes);
+    expect(dimensionEdit(once, ['circ'], createIdGenerator())).toBeUndefined();
+  });
+
+  it('refuses a diameter on a circle that already has a radius', () => {
+    // They say the same thing, so the solver would rightly call the sketch
+    // over defined — with two dimensions that do not look like duplicates.
+    // A circle plans as a diameter, so the radius has to be put there by hand,
+    // which is also what opening a file can do.
+    const withRadius = addConstraint({
+      id: 'r1',
+      kind: 'radius',
+      entity: 'circ',
+      value: 40,
+    })(shapes);
+
+    expect(dimensionPlan(withRadius, ['circ'])).toMatchObject({ kind: 'diameter' });
+    expect(dimensionEdit(withRadius, ['circ'], createIdGenerator())).toBeUndefined();
+  });
+
+  it('refuses a radius on an arc that already has a diameter', () => {
+    const arcs = compose(
+      addPoint('ac', 0, 0),
+      addPoint('as', 60, 0),
+      addPoint('ae', 0, 60),
+      addArc('arc1', 'ac', 'as', 'ae', 'layer1'),
+      addConstraint({ id: 'd1', kind: 'diameter', entity: 'arc1', value: 120 }),
+    )(createEmptyDocument());
+
+    expect(dimensionPlan(arcs, ['arc1'])).toMatchObject({ kind: 'radius' });
+    expect(dimensionEdit(arcs, ['arc1'], createIdGenerator())).toBeUndefined();
+  });
+
+  it('produces a document that validates', () => {
+    for (const selection of [['lineA', 'lineB'], ['circ'], ['bx', 'lineA'], ['lineA']]) {
+      const edit = dimensionEdit(shapes, selection, createIdGenerator());
+      expect(validate(edit!(shapes)), selection.join('+')).toEqual([]);
+    }
+  });
+});
+
+describe('setReference', () => {
+  const withDimension = compose(
+    addPoint('p1', 0, 0),
+    addPoint('p2', 100, 0),
+    addConstraint({ id: 'dim1', kind: 'distance', p1: 'p1', p2: 'p2', value: 100 }),
+    addConstraint({ id: 'rel1', kind: 'horizontal', p1: 'p1', p2: 'p2' }),
+  )(createEmptyDocument());
+
+  it('turns a driving dimension into a measurement and back', () => {
+    const measured = setReference('dim1', true)(withDimension);
+    expect(measured.constraints['dim1']).toMatchObject({ reference: true });
+    expect(setReference('dim1', false)(measured).constraints['dim1']).toMatchObject({ reference: false });
+  });
+
+  it('leaves a relation alone: only a dimension can be a measurement', () => {
+    expect(setReference('rel1', true)(withDimension)).toBe(withDimension);
+  });
+
+  it('returns the same document when nothing would change', () => {
+    expect(setReference('dim1', false)(withDimension)).toBe(withDimension);
   });
 });

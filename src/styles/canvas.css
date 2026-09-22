@@ -85,6 +85,8 @@
    compete with the sketch lines it measures. */
 :root {
   --dimline: #56616b;
+  /* Lighter than a driving dimension: a measurement, not an input. */
+  --dimref: #8c949c;
 }
 
 .sketch-stage .dim-ext,
@@ -114,6 +116,14 @@
 /* Suspended relations stay visible but greyed, per the plan. */
 .sketch-stage .dimension.is-suspended { opacity: 0.55; }
 .sketch-stage .dimension.is-suspended .dim-line { stroke-dasharray: 4 3; }
+
+/* A reference dimension measures without driving. Its number is bracketed,
+   which is the drawing convention; the lighter stroke says the same thing
+   again for anyone skimming rather than reading. */
+.sketch-stage .dimension.is-reference .dim-ext,
+.sketch-stage .dimension.is-reference .dim-line { stroke: var(--dimref); }
+.sketch-stage .dimension.is-reference .dim-arrow { fill: var(--dimref); }
+.sketch-stage .dimension.is-reference .dim-text { fill: var(--dimref); font-style: italic; }
 
 /* Grid -------------------------------------------------------------------
    Quiet enough to draw over: the minor lines should read as paper texture,

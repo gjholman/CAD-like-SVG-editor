@@ -13,7 +13,9 @@ import {
   addConstraint,
   compose,
   constraintRefs,
+  isDimensionConstraint,
   type Constraint,
+  type DimensionKind,
   type DocumentEdit,
   type Entity,
   type Id,
@@ -170,35 +172,99 @@ export function relationEdit(
   return addConstraint({ id: nextId('c'), kind, p1, p2 } as Constraint);
 }
 
-export type DimensionKind = 'horizontal-distance' | 'vertical-distance' | 'distance';
+export type { DimensionKind } from '../../core/model';
 
+/**
+ * What a smart dimension would add for the current selection.
+ *
+ * `points` and `entities` are what the constraint will reference, so the
+ * duplicate check and the edit can both be built from the plan alone.
+ */
 export interface DimensionPlan {
   readonly kind: DimensionKind;
-  readonly p1: Id;
-  readonly p2: Id;
+  readonly points: readonly Id[];
+  readonly entities: readonly Id[];
   readonly value: number;
+  /** What the annotation will read, for previewing before the click. */
+  readonly label: string;
 }
 
 /**
- * What a smart dimension would add for this selection: the axis the two points
- * are most separated along, measured at their current positions.
+ * What a smart dimension would add for this selection, measured where the
+ * geometry currently sits.
  *
- * Picking the dominant axis is what makes one tool serve width and height, the
- * way SolidWorks' smart dimension does. A pair that is neither clearly
- * horizontal nor vertical gets a straight-line distance.
+ * One tool serves every kind, the way SolidWorks' smart dimension does — what
+ * you pick decides what you get:
+ *
+ *   two points, or a line       length, or width/height if it is nearly axial
+ *   two lines                   the angle between them
+ *   a circle                    diameter (the drawing convention for a circle)
+ *   an arc                      radius (the drawing convention for an arc)
+ *   a point and a line          the perpendicular distance between them
  */
 export function dimensionPlan(
   doc: SketchDocument,
   selection: Iterable<Id>,
   positions: Readonly<Record<Id, Point2>> = doc.points,
 ): DimensionPlan | undefined {
+  const at = (id: Id): Point2 | undefined => positions[id] ?? doc.points[id];
+  const { points, entities } = describeSelection(doc, selection);
+
+  // Two lines: the angle between them, as they currently stand.
+  if (points.length === 0 && entities.length === 2) {
+    const [a, b] = entities as [Id, Id];
+    if (a === b) return undefined;
+    const da = lineDirection(doc, a, at);
+    const db = lineDirection(doc, b, at);
+    if (da === undefined || db === undefined) return undefined;
+
+    const degrees = round(normalizeDegrees(((Math.atan2(db.y, db.x) - Math.atan2(da.y, da.x)) * 180) / Math.PI));
+    return { kind: 'angle', points: [], entities: [a, b], value: degrees, label: `${degrees}°` };
+  }
+
+  // One round entity: diameter for a circle, radius for an arc.
+  if (points.length === 0 && entities.length === 1) {
+    const entity = doc.entities[entities[0]!];
+    if (entity !== undefined && entity.kind !== 'line') {
+      const radius = radiusOf(entity, at);
+      if (radius === undefined) return undefined;
+      return entity.kind === 'circle'
+        ? { kind: 'diameter', points: [], entities: [entity.id], value: round(radius * 2), label: `⌀${round(radius * 2)}` }
+        : { kind: 'radius', points: [], entities: [entity.id], value: round(radius), label: `R${round(radius)}` };
+    }
+  }
+
+  // A point and a line: the perpendicular distance between them.
+  if (points.length === 1 && entities.length === 1) {
+    const point = at(points[0]!);
+    const line = doc.entities[entities[0]!];
+    if (point === undefined || line?.kind !== 'line') return undefined;
+    const a = at(line.p1);
+    const b = at(line.p2);
+    if (a === undefined || b === undefined) return undefined;
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) return undefined;
+    const distance = round(Math.abs(dx * (point.y - a.y) - dy * (point.x - a.x)) / length);
+    return {
+      kind: 'point-line-distance',
+      points: [points[0]!],
+      entities: [line.id],
+      value: distance,
+      label: String(distance),
+    };
+  }
+
+  // Otherwise the v1 behaviour: a point pair, or a line read as its endpoints.
   const pair = pointPair(doc, selection);
   if (pair === undefined) return undefined;
   const [p1, p2] = pair;
   if (p1 === p2) return undefined;
 
-  const a = positions[p1] ?? doc.points[p1];
-  const b = positions[p2] ?? doc.points[p2];
+  const a = at(p1);
+  const b = at(p2);
   if (a === undefined || b === undefined) return undefined;
 
   const dx = b.x - a.x;
@@ -207,12 +273,13 @@ export function dimensionPlan(
   const ratio = 3;
 
   if (Math.abs(dx) > Math.abs(dy) * ratio) {
-    return { kind: 'horizontal-distance', p1, p2, value: round(dx) };
+    return { kind: 'horizontal-distance', points: [p1, p2], entities: [], value: round(dx), label: String(Math.abs(round(dx))) };
   }
   if (Math.abs(dy) > Math.abs(dx) * ratio) {
-    return { kind: 'vertical-distance', p1, p2, value: round(dy) };
+    return { kind: 'vertical-distance', points: [p1, p2], entities: [], value: round(dy), label: String(Math.abs(round(dy))) };
   }
-  return { kind: 'distance', p1, p2, value: round(Math.hypot(dx, dy)) };
+  const length = round(Math.hypot(dx, dy));
+  return { kind: 'distance', points: [p1, p2], entities: [], value: length, label: String(length) };
 }
 
 export function dimensionEdit(
@@ -220,18 +287,86 @@ export function dimensionEdit(
   selection: Iterable<Id>,
   nextId: IdGenerator,
   positions?: Readonly<Record<Id, Point2>>,
+  options: { readonly reference?: boolean } = {},
 ): DocumentEdit | undefined {
   const plan = dimensionPlan(doc, selection, positions);
   if (plan === undefined) return undefined;
-  if (hasConstraint(doc, { kind: plan.kind, points: [plan.p1, plan.p2], entities: [] })) return undefined;
+  // A reference dimension is a read-out, so a second one saying the same thing
+  // is merely clutter rather than an over-defined sketch — but it is still
+  // clutter, so the same duplicate check applies.
+  if (hasConstraint(doc, { kind: plan.kind, points: plan.points, entities: plan.entities })) {
+    return undefined;
+  }
+  // A radius and a diameter on the same circle say the same thing, and the
+  // solver would correctly but unhelpfully call the sketch over defined.
+  const twin = plan.kind === 'radius' ? 'diameter' : plan.kind === 'diameter' ? 'radius' : undefined;
+  if (twin !== undefined && hasConstraint(doc, { kind: twin, points: [], entities: plan.entities })) {
+    return undefined;
+  }
 
+  const reference = options.reference === true ? { reference: true } : {};
   return addConstraint({
     id: nextId('dim'),
     kind: plan.kind,
-    p1: plan.p1,
-    p2: plan.p2,
     value: plan.value,
-  });
+    ...shapeOf(plan),
+    ...reference,
+  } as Constraint);
+}
+
+/** The reference fields a constraint of this kind expects. */
+function shapeOf(plan: DimensionPlan): Record<string, Id> {
+  switch (plan.kind) {
+    case 'angle':
+      return { a: plan.entities[0]!, b: plan.entities[1]! };
+    case 'radius':
+    case 'diameter':
+      return { entity: plan.entities[0]! };
+    case 'point-line-distance':
+      return { point: plan.points[0]!, entity: plan.entities[0]! };
+    default:
+      return { p1: plan.points[0]!, p2: plan.points[1]! };
+  }
+}
+
+/** Turns a dimension into a reference measurement, or back into a driving one. */
+export function setReference(id: Id, reference: boolean): DocumentEdit {
+  return (doc) => {
+    const constraint = doc.constraints[id];
+    if (constraint === undefined || !isDimensionConstraint(constraint)) return doc;
+    if ((constraint.reference ?? false) === reference) return doc;
+    return { ...doc, constraints: { ...doc.constraints, [id]: { ...constraint, reference } } };
+  };
+}
+
+/** A line's direction at the current positions, or undefined if it has none. */
+function lineDirection(
+  doc: SketchDocument,
+  entityId: Id,
+  at: (id: Id) => Point2 | undefined,
+): Point2 | undefined {
+  const entity = doc.entities[entityId];
+  if (entity?.kind !== 'line') return undefined;
+  const a = at(entity.p1);
+  const b = at(entity.p2);
+  if (a === undefined || b === undefined) return undefined;
+  const direction = { x: b.x - a.x, y: b.y - a.y };
+  return Math.hypot(direction.x, direction.y) === 0 ? undefined : direction;
+}
+
+function radiusOf(entity: Entity, at: (id: Id) => Point2 | undefined): number | undefined {
+  if (entity.kind === 'circle') return entity.radius;
+  if (entity.kind !== 'arc') return undefined;
+  const centre = at(entity.center);
+  const start = at(entity.start);
+  if (centre === undefined || start === undefined) return undefined;
+  return Math.hypot(start.x - centre.x, start.y - centre.y);
+}
+
+/** Into (-180, 180], so the number on the drawing is the one you would read. */
+function normalizeDegrees(degrees: number): number {
+  const wrapped = ((degrees % 360) + 360) % 360;
+  return wrapped > 180 ? wrapped - 360 : wrapped;
 }
 
 /** Changes a driving dimension's number, which is what moves the geometry. */
