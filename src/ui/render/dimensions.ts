@@ -445,16 +445,6 @@ export function arrowPath(tip: Point2, towards: Point2, viewport: Viewport): str
   ].join('');
 }
 
-export function isDimension(
-  constraint: Constraint,
-): constraint is Constraint & { value: number; p1: Id; p2: Id } {
-  return (
-    constraint.kind === 'distance' ||
-    constraint.kind === 'horizontal-distance' ||
-    constraint.kind === 'vertical-distance'
-  );
-}
-
 /**
  * A signed dimension reads oddly on a drawing: a width of -480 just means the
  * points were picked right to left. Show the magnitude.

@@ -16,8 +16,8 @@ export {
   arrowPath,
   dimensionGeometry,
   formatValue,
+  labelFor,
   signedDimensionValue,
-  isDimension,
   type DimensionGeometry,
 } from './dimensions';
 export {

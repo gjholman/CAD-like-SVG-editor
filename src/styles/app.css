@@ -347,6 +347,33 @@ kbd {
 
 .relation .acts { display: flex; gap: 1px; }
 
+/* A reference dimension reads as a measurement rather than an input: its
+   field is not editable, so it should not look like a place to type. */
+.relation.reference input {
+  background: transparent;
+  border-color: transparent;
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* A relation tying one layer to another. Worth marking, because suspending
+   it is how a layer is let loose from the one it is pinned to. */
+.relation .crosses {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  color: var(--faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.btn.wide {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+
 .relation .acts button {
   width: 22px;
   height: 22px;

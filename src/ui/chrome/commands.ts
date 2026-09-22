@@ -36,6 +36,11 @@ export function wireCommands(editor: Editor, sync: () => void): void {
   on('[data-action="undo"]', () => editor.undo());
   on('[data-action="redo"]', () => editor.redo());
   on('[data-action="fit"]', () => editor.zoomToFit());
+  on('[data-action="cross-layer"]', () => {
+    // The button says which way it goes, so read that rather than recomputing.
+    const button = q<HTMLButtonElement>('[data-action="cross-layer"]');
+    editor.suspendCrossLayer(button?.dataset['suspend'] !== 'false');
+  });
 
   for (const button of all<HTMLButtonElement>('[data-hud]')) {
     button.addEventListener('click', () => {

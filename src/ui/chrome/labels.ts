@@ -36,6 +36,10 @@ export const RELATION_NAMES: Record<string, string> = {
   distance: 'Distance',
   'horizontal-distance': 'Width',
   'vertical-distance': 'Height',
+  angle: 'Angle',
+  radius: 'Radius',
+  diameter: 'Diameter',
+  'point-line-distance': 'Distance to line',
 };
 
 /** Sprite ids from the page's icon sheet. */
@@ -56,6 +60,10 @@ export const RELATION_ICONS: Record<string, string> = {
   distance: '#i-dim',
   'horizontal-distance': '#i-dim',
   'vertical-distance': '#i-dim',
+  angle: '#i-dim',
+  radius: '#i-circle',
+  diameter: '#i-circle',
+  'point-line-distance': '#i-dim',
 };
 
 /** What a relation acts on, in the ids the canvas shows. */

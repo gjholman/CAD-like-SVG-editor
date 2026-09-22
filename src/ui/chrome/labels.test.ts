@@ -145,6 +145,10 @@ describe('the label tables', () => {
       'distance',
       'horizontal-distance',
       'vertical-distance',
+      'angle',
+      'radius',
+      'diameter',
+      'point-line-distance',
     ];
     for (const kind of kinds) {
       expect(RELATION_NAMES[kind], kind).toBeTruthy();

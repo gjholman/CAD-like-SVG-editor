@@ -10,18 +10,24 @@ import {
   createEmptyDocument,
   createIdGenerator,
   validate,
+  type Constraint,
   type Id,
+  type SketchDocument,
 } from '../../core/model';
 import {
   canApplyRelation,
+  crossLayerConstraints,
+  crossesLayers,
   describeSelection,
   dimensionEdit,
   dimensionPlan,
   pointPair,
   relationEdit,
+  layersTouched,
   setDimensionValue,
   setReference,
   setSuspended,
+  suspendCrossLayer,
 } from './commands';
 
 const twoPoints = compose(addPoint('p1', 0, 0), addPoint('p2', 100, 20))(createEmptyDocument());
@@ -396,5 +402,103 @@ describe('setReference', () => {
 
   it('returns the same document when nothing would change', () => {
     expect(setReference('dim1', false)(withDimension)).toBe(withDimension);
+  });
+});
+
+describe('cross-layer relations', () => {
+  /**
+   * Two lines on two layers, sharing nothing, plus the relations that might
+   * tie them together. Only a loaded file can be shaped like this today: the
+   * drawing tools all put their geometry on the first layer.
+   */
+  const twoLayers = (constraints: Constraint[] = []): SketchDocument => ({
+    version: 1,
+    points: {
+      a1: { id: 'a1', x: 0, y: 0 },
+      a2: { id: 'a2', x: 100, y: 0 },
+      b1: { id: 'b1', x: 0, y: 50 },
+      b2: { id: 'b2', x: 100, y: 50 },
+    },
+    entities: {
+      lineA: { id: 'lineA', kind: 'line', p1: 'a1', p2: 'a2', layer: 'front', construction: false },
+      lineB: { id: 'lineB', kind: 'line', p1: 'b1', p2: 'b2', layer: 'back', construction: false },
+    },
+    constraints: Object.fromEntries(constraints.map((c) => [c.id, c])),
+    paths: {},
+    layers: {
+      front: { id: 'front', name: 'Front', visible: true, locked: false },
+      back: { id: 'back', name: 'Back', visible: true, locked: false },
+    },
+    layerOrder: ['front', 'back'],
+  });
+
+  const parallelAcross: Constraint = { id: 'x1', kind: 'parallel', a: 'lineA', b: 'lineB' };
+  const withinFront: Constraint = { id: 'w1', kind: 'horizontal', p1: 'a1', p2: 'a2' };
+  const pointsAcross: Constraint = { id: 'x2', kind: 'coincident', p1: 'a2', p2: 'b1' };
+
+  it('sees a relation between entities on two layers', () => {
+    const doc = twoLayers([parallelAcross]);
+    expect(crossesLayers(doc, parallelAcross)).toBe(true);
+    expect([...layersTouched(doc, parallelAcross)].sort()).toEqual(['back', 'front']);
+  });
+
+  it('does not call a relation within one layer a crossing', () => {
+    expect(crossesLayers(twoLayers([withinFront]), withinFront)).toBe(false);
+  });
+
+  it('follows points through to the geometry that uses them', () => {
+    // A point has no layer of its own, so this is the only way to tell.
+    expect(crossesLayers(twoLayers([pointsAcross]), pointsAcross)).toBe(true);
+  });
+
+  it('lists the crossings that touch the selection', () => {
+    const doc = twoLayers([parallelAcross, withinFront, pointsAcross]);
+    expect(crossLayerConstraints(doc, ['lineA'])).toEqual(['x1']);
+    expect(crossLayerConstraints(doc, ['a2'])).toEqual(['x2']);
+    // Nothing selected means the whole document.
+    expect(crossLayerConstraints(doc, [])).toEqual(['x1', 'x2']);
+  });
+
+  it('falls back to the whole document when the selection touches no crossing', () => {
+    // Otherwise the affordance disappears the moment you click something
+    // unrelated, while the relation tying two layers together is still there.
+    const doc = twoLayers([parallelAcross, withinFront]);
+    expect(crossLayerConstraints(doc, ['a1'])).toEqual(['x1']);
+  });
+
+  it('suspends every crossing on the selection in one step', () => {
+    const doc = twoLayers([parallelAcross, withinFront, pointsAcross]);
+    const edit = suspendCrossLayer(doc, [], true)!;
+    const after = edit(doc);
+
+    expect(after.constraints['x1']).toMatchObject({ suspended: true });
+    expect(after.constraints['x2']).toMatchObject({ suspended: true });
+    // The relation that stays inside one layer is untouched.
+    expect(after.constraints['w1']!.suspended).toBeUndefined();
+  });
+
+  it('resumes them again, because suspension is persistent not momentary', () => {
+    const doc = twoLayers([parallelAcross]);
+    const suspended = suspendCrossLayer(doc, [], true)!(doc);
+    const resumed = suspendCrossLayer(suspended, [], false)!(suspended);
+
+    expect(resumed.constraints['x1']).toMatchObject({ suspended: false });
+  });
+
+  it('has nothing to do when there is nothing to change', () => {
+    // A single-layer document, which is all the drawing tools can make.
+    const oneLayer = compose(
+      addPoint('p1', 0, 0),
+      addPoint('p2', 100, 0),
+      addLine('line1', 'p1', 'p2', 'layer1'),
+      addConstraint({ id: 'c1', kind: 'horizontal', p1: 'p1', p2: 'p2' }),
+    )(createEmptyDocument());
+
+    expect(crossLayerConstraints(oneLayer, [])).toEqual([]);
+    expect(suspendCrossLayer(oneLayer, [], true)).toBeUndefined();
+    // And nothing to do twice: suspending what is already suspended is a no-op.
+    const doc = twoLayers([parallelAcross]);
+    const once = suspendCrossLayer(doc, [], true)!(doc);
+    expect(suspendCrossLayer(once, [], true)).toBeUndefined();
   });
 });

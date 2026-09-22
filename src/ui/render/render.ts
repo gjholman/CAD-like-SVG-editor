@@ -71,6 +71,11 @@ export type Preview =
 export function render(root: Element, doc: SketchDocument, options: RenderOptions): void {
   const { viewport, result } = options;
   const selection = new Set<Id>(options.selection ?? []);
+  // Selecting a relation in the panel says nothing on the canvas by itself —
+  // a constraint is not a point or a line, so nothing would light up. Marking
+  // what it *acts on* is what makes the list navigable: click "tangent" and
+  // the two things that are tangent are the ones glowing.
+  const related = relatedGeometry(doc, selection);
 
   root.replaceChildren();
   const view = element('g', { class: 'sketch-view', transform: viewTransform(viewport) });
@@ -95,17 +100,18 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
 
       const status = entityClass(entity.id, result?.entityStatus, overDefined, conflicted, doc);
       const selected = selection.has(entity.id);
+      const highlighted = related.has(entity.id);
       const wrapper = element('g', {
-        class: `sketch-entity ${status}${selected ? ' is-selected' : ''}`,
+        class: `sketch-entity ${status}${selected ? ' is-selected' : ''}${highlighted ? ' is-related' : ''}`,
         'data-entity': entity.id,
       });
       if (entity.construction) wrapper.setAttribute('data-construction', 'true');
       // The halo is a copy of the shape drawn behind it, as in the mockup, so
       // selection reads clearly without disturbing the status colour.
-      if (selected) {
+      if (selected || highlighted) {
         const halo = entityShape(entity, positions, radii);
         if (halo !== undefined) {
-          halo.setAttribute('class', 'selhalo');
+          halo.setAttribute('class', selected ? 'selhalo' : 'relhalo');
           wrapper.append(halo);
         }
       }
@@ -119,12 +125,31 @@ export function render(root: Element, doc: SketchDocument, options: RenderOption
   if (options.showDimensions !== false) {
     view.append(dimensionsGroup(doc, positions, viewport, selection, conflicted));
   }
-  view.append(pointsGroup(doc, positions, viewport, result, overDefined, selection));
+  view.append(pointsGroup(doc, positions, viewport, result, overDefined, selection, related));
   if (options.preview !== undefined) view.append(previewLine(options.preview));
   if (options.hints !== undefined && options.hints.icons.length > 0) {
     view.append(hintGlyphs(options.hints, viewport));
   }
   root.append(view);
+}
+
+/**
+ * The points and entities the selected *constraints* act on.
+ *
+ * Only constraints contribute: selecting a line does not light up its
+ * endpoints, because the line is already showing its own selection and
+ * doubling it up says nothing new.
+ */
+function relatedGeometry(doc: SketchDocument, selection: ReadonlySet<Id>): ReadonlySet<Id> {
+  const related = new Set<Id>();
+  for (const id of selection) {
+    const constraint = doc.constraints[id];
+    if (constraint === undefined) continue;
+    const refs = constraintRefs(constraint);
+    for (const pointId of refs.points) related.add(pointId);
+    for (const entityId of refs.entities) related.add(entityId);
+  }
+  return related;
 }
 
 function entitiesOnLayer(doc: SketchDocument, layerId: Id): Entity[] {
@@ -184,6 +209,7 @@ function pointsGroup(
   result: SolveResult | undefined,
   overDefined: boolean,
   selection: ReadonlySet<Id>,
+  related: ReadonlySet<Id>,
 ): Element {
   const group = element('g', { class: 'sketch-points' });
   // Dots are a screen-space size, so divide out the zoom.
@@ -193,13 +219,14 @@ function pointsGroup(
     const point = positions[id] ?? doc.points[id]!;
     const status = statusClass(result?.pointStatus?.[id], overDefined);
     const selected = selection.has(id);
+    const highlighted = related.has(id);
     group.append(
       element('circle', {
-        class: `dot ${status}${selected ? ' is-selected' : ''}`,
+        class: `dot ${status}${selected ? ' is-selected' : ''}${highlighted ? ' is-related' : ''}`,
         'data-point': id,
         cx: point.x,
         cy: point.y,
-        r: selected ? radius * 1.6 : radius,
+        r: selected || highlighted ? radius * 1.6 : radius,
       }),
     );
   }

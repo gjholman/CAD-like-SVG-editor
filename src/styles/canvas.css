@@ -70,6 +70,26 @@
   paint-order: stroke;
 }
 
+/* What a selected *relation* acts on. Distinct from selection itself: this
+   geometry is not selected — deleting would not remove it — it is what the
+   relation in the panel is talking about. Cooler colour, thinner halo. */
+:root {
+  --rel: #3f8cff;
+}
+
+.sketch-stage .relhalo {
+  fill: none;
+  stroke: var(--rel);
+  stroke-opacity: 0.4;
+  stroke-width: 7;
+}
+
+.sketch-stage .dot.is-related {
+  stroke: var(--rel);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
 /* The rubber line a drawing tool trails to the cursor. Nothing is committed
    until the click lands, so it reads as provisional. */
 .sketch-stage .preview {

@@ -13,6 +13,7 @@ import {
   addConstraint,
   compose,
   constraintRefs,
+  entityPointIds,
   isDimensionConstraint,
   type Constraint,
   type DimensionKind,
@@ -414,4 +415,83 @@ function hasConstraint(
 /** Dimensions are px; a hair of solver noise should not show up as 479.9999. */
 function round(value: number): number {
   return Math.round(value * 1e6) / 1e6;
+}
+
+/**
+ * Which layers a constraint reaches into.
+ *
+ * A point has no layer of its own — it belongs to whatever entities use it —
+ * so a constraint between two points crosses layers when the geometry hanging
+ * off those points does. That is the honest reading: suspending it is about
+ * letting one layer move without dragging another along.
+ */
+export function layersTouched(doc: SketchDocument, constraint: Constraint): ReadonlySet<Id> {
+  const refs = constraintRefs(constraint);
+  const layers = new Set<Id>();
+
+  for (const entityId of refs.entities) {
+    const entity = doc.entities[entityId];
+    if (entity !== undefined) layers.add(entity.layer);
+  }
+  for (const pointId of refs.points) {
+    for (const entity of Object.values(doc.entities)) {
+      if (entityPointIds(entity).includes(pointId)) layers.add(entity.layer);
+    }
+  }
+  return layers;
+}
+
+/** Does this relation tie one layer to another? */
+export function crossesLayers(doc: SketchDocument, constraint: Constraint): boolean {
+  return layersTouched(doc, constraint).size > 1;
+}
+
+/**
+ * The cross-layer relations the toggle would act on.
+ *
+ * The plan suspends them *for the geometry being clicked on* rather than
+ * document-wide, so a selection narrows this to the crossings that touch it.
+ *
+ * When the selection touches no crossing at all, this falls back to every
+ * crossing in the document rather than to nothing. Returning nothing would
+ * make the affordance vanish the moment the user clicked something unrelated,
+ * while a relation tying two layers together was still sitting in the panel
+ * with its badge on — which reads as the feature breaking. The count on the
+ * button always says exactly what a click will do, and it is one undo away.
+ */
+export function crossLayerConstraints(doc: SketchDocument, selection: Iterable<Id>): Id[] {
+  const crossings = Object.keys(doc.constraints)
+    .sort()
+    .filter((id) => crossesLayers(doc, doc.constraints[id]!));
+
+  const picked = new Set(selection);
+  if (picked.size === 0) return crossings;
+
+  const touching = crossings.filter((id) => {
+    if (picked.has(id)) return true;
+    const refs = constraintRefs(doc.constraints[id]!);
+    return [...refs.points, ...refs.entities].some((ref) => picked.has(ref));
+  });
+
+  return touching.length > 0 ? touching : crossings;
+}
+
+/**
+ * Suspends (or resumes) every cross-layer relation on the selection, as one
+ * undo step.
+ *
+ * Suspension is persistent, which is the plan's decision: these stay switched
+ * off until someone switches them back on, and the geometry that relied on
+ * them correctly reports as under defined in the meantime.
+ */
+export function suspendCrossLayer(
+  doc: SketchDocument,
+  selection: Iterable<Id>,
+  suspended: boolean,
+): DocumentEdit | undefined {
+  const ids = crossLayerConstraints(doc, selection).filter(
+    (id) => (doc.constraints[id]!.suspended ?? false) !== suspended,
+  );
+  if (ids.length === 0) return undefined;
+  return compose(...ids.map((id) => setSuspended(id, suspended)));
 }

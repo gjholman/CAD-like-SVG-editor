@@ -61,8 +61,11 @@ import {
   dimensionEdit,
   dimensionPlan,
   relationEdit,
+  crossLayerConstraints,
   setDimensionValue,
+  setReference,
   setSuspended,
+  suspendCrossLayer,
   type DimensionPlan,
   type RelationKind,
 } from './commands';
@@ -127,6 +130,12 @@ export interface Editor {
   planDimension(): DimensionPlan | undefined;
   addDimension(): void;
   setDimensionValue(id: Id, value: number): void;
+  /** Turns a dimension into a measurement that drives nothing, or back. */
+  setReference(id: Id, reference: boolean): void;
+  /** Relations tying the selection to geometry on another layer. */
+  getCrossLayer(): readonly Id[];
+  /** Suspends or resumes all of those, as one undo step. */
+  suspendCrossLayer(suspended: boolean): void;
   setSuspended(id: Id, suspended: boolean): void;
   getTool(): ToolName;
   setTool(tool: ToolName): void;
@@ -516,6 +525,15 @@ export function createEditor(options: EditorOptions): Editor {
     },
     setDimensionValue(id, value) {
       apply(setDimensionValue(id, value), 'Change dimension');
+    },
+    setReference(id, reference) {
+      apply(setReference(id, reference), reference ? 'Make reference' : 'Make driving');
+    },
+    getCrossLayer: () => crossLayerConstraints(current(history), selection),
+    suspendCrossLayer(suspended) {
+      const edit = suspendCrossLayer(current(history), selection, suspended);
+      if (edit === undefined) return;
+      apply(edit, suspended ? 'Suspend across layers' : 'Resume across layers');
     },
     setSuspended(id, suspended) {
       apply(setSuspended(id, suspended), suspended ? 'Suspend relation' : 'Resume relation');

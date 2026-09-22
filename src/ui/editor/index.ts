@@ -6,13 +6,18 @@ export type { DrawingTool, InferenceGuess, ToolContext } from './tool-context';
 export { distanceToArc, distanceToSegment, hitTest, hitTestEntity, hitTestPoint, type Hit, type HitTestInput } from './hit-test';
 export {
   canApplyRelation,
+  crossLayerConstraints,
+  crossesLayers,
   describeSelection,
   dimensionEdit,
   dimensionPlan,
   pointPair,
   relationEdit,
+  layersTouched,
   setDimensionValue,
+  setReference,
   setSuspended,
+  suspendCrossLayer,
   type DimensionKind,
   type DimensionPlan,
   type RelationKind,
