@@ -11,27 +11,24 @@
  *   selection   transient, not part of the document
  *   tool state  transient (the line tool's chain in progress)
  *
- * v0 tools are select (with drag) and line. Relations and dimensions are
+ * v0 tools are select (with drag), line and arc. Relations and dimensions are
  * commands on the current selection rather than modal tools, which is how the
  * mockup's relation buttons and its "select first" shortcuts work.
+ *
+ * The drawing tools live in `line-tool.ts` and `arc-tool.ts`, each owning its
+ * own transient state behind the `DrawingTool` interface, and the keyboard map
+ * lives in `keymap.ts`. What is left here is the shell they share: history,
+ * viewport, selection, the pointer state machine, and `apply`.
  */
 import {
-  addArc,
-  addConstraint,
-  addLine,
-  addPoint,
-  closePath,
   compose,
   createEmptyDocument,
   documentIds,
-  extendPath,
   generatorPast,
   pruneOrphanPoints,
   removeConstraint,
   removeEntity,
   removePoint,
-  startPath,
-  type Constraint,
   type Id,
   type IdGenerator,
   type SketchDocument,
@@ -49,10 +46,7 @@ import {
 import { applySolution, solve, type SolveResult } from '../../core/solver';
 import {
   IDENTITY_VIEWPORT,
-  angleOf,
-  arcPoint,
   fitTo,
-  normalizeAngle,
   snapToGrid,
   panBy,
   render,
@@ -60,7 +54,6 @@ import {
   sketchBounds,
   zoomAt,
   type Point2,
-  type Preview,
   type Viewport,
 } from '../render';
 import {
@@ -75,36 +68,12 @@ import {
 } from './commands';
 import { hitTest, type Hit } from './hit-test';
 import { inferSegment, relationIcon, type InferredRelation } from './inference';
+import { createArcTool } from './arc-tool';
+import { createLineTool } from './line-tool';
+import { RELATION_LABELS, handleKey } from './keymap';
+import type { DrawingTool, InferenceGuess, ToolContext } from './tool-context';
 
 export type ToolName = 'select' | 'line' | 'arc';
-
-/** Shift-plus-letter applies a relation to the selection, as in the mockup. */
-const RELATION_KEYS: Readonly<Record<string, RelationKind>> = {
-  h: 'horizontal',
-  v: 'vertical',
-  c: 'coincident',
-  f: 'fix',
-  p: 'parallel',
-  r: 'perpendicular',
-  t: 'tangent',
-  e: 'equal',
-  s: 'symmetric',
-};
-
-const RELATION_LABELS: Readonly<Record<RelationKind, string>> = {
-  horizontal: 'Add horizontal',
-  vertical: 'Add vertical',
-  coincident: 'Add coincident',
-  fix: 'Fix point',
-  parallel: 'Add parallel',
-  perpendicular: 'Add perpendicular',
-  collinear: 'Add collinear',
-  tangent: 'Add tangent',
-  equal: 'Add equal',
-  concentric: 'Add concentric',
-  midpoint: 'Add midpoint',
-  symmetric: 'Add symmetric',
-};
 
 /** Pick radius in screen px, so it feels the same at any zoom. */
 const PICK_TOLERANCE = 8;
@@ -217,64 +186,47 @@ export function createEditor(options: EditorOptions): Editor {
   let snapping = options.snapToGrid ?? false;
   let showDimensions = options.showDimensions ?? true;
   let inferring = options.inferRelations ?? false;
-  /** What the pending click would add, recomputed on every move. */
-  let inferred: InferredRelation[] = [];
   const gridSpacing = options.gridSpacing ?? 10;
   let selection: Id[] = [];
   let result: SolveResult = solve(current(history));
 
   let drag: DragState | undefined;
   let pan: PanState | undefined;
-  /** The line tool's chain: where the next segment starts, and its path. */
-  let chainPoint: Id | undefined;
-  let chainPath: Id | undefined;
-  /** Where the chain began, so clicking back on it closes the loop. */
-  let chainStart: Id | undefined;
-
-  /**
-   * The arc tool in progress: centre, then start, then the swept angle the
-   * cursor has traced. Direction comes from that sweep rather than from where
-   * the last click lands, which is what lets an arc run past half a turn.
-   */
-  let arcCentre: Id | undefined;
-  let arcStart: Id | undefined;
-  let arcSweep = 0;
-  let arcLastAngle: number | undefined;
   let cursor: Point2 | undefined;
   let gestureCounter = 0;
 
-  /** What the active tool is trailing to the cursor, if anything. */
-  function previewFor(): Preview | undefined {
-    if (cursor === undefined) return undefined;
+  /**
+   * What the tools are given: look the document up, hand an edit over. They
+   * hold their own in-progress state and nothing else.
+   */
+  const context: ToolContext = {
+    doc: () => current(history),
+    pointAt,
+    pick: (at) => pick(at),
+    place,
+    nextId: (prefix) => nextId(prefix),
+    apply: (edit, label) => apply(edit, label),
+    infer: (anchor, at, hit) => inferFrom(anchor, at, hit),
+  };
 
-    if (tool === 'line' && chainPoint !== undefined) {
-      const from = pointAt(chainPoint);
-      return from === undefined ? undefined : { kind: 'line', from, to: cursor };
-    }
+  const lineTool = createLineTool(context);
+  const arcTool = createArcTool(context);
 
-    if (tool === 'arc' && arcCentre !== undefined) {
-      const centre = pointAt(arcCentre);
-      if (centre === undefined) return undefined;
-      const start = pointAt(arcStart);
-      // Before the start point is placed, the radius itself is what is being
-      // chosen, so show it as a line from the centre.
-      if (start === undefined) return { kind: 'line', from: centre, to: cursor };
-
-      const radius = Math.hypot(start.x - centre.x, start.y - centre.y);
-      return {
-        kind: 'arc',
-        centre,
-        start,
-        end: arcPoint(centre, radius, angleOf(centre, cursor)),
-        clockwise: arcSweep > 0,
-      };
-    }
-
+  /** The tool a click goes to, or undefined for the select tool. */
+  function drawingTool(): DrawingTool | undefined {
+    if (tool === 'line') return lineTool;
+    if (tool === 'arc') return arcTool;
     return undefined;
   }
 
+  /** Relations the pending click would add; only the line tool infers. */
+  function hints(): readonly InferredRelation[] {
+    return tool === 'line' ? lineTool.hints() : [];
+  }
+
   function draw(): void {
-    const preview = previewFor();
+    const preview = cursor === undefined ? undefined : drawingTool()?.preview(cursor);
+    const icons = hints();
     render(root, current(history), {
       viewport,
       result,
@@ -282,9 +234,9 @@ export function createEditor(options: EditorOptions): Editor {
       preview,
       showDimensions,
       hints:
-        cursor === undefined || inferred.length === 0
+        cursor === undefined || icons.length === 0
           ? undefined
-          : { at: cursor, icons: inferred.map(relationIcon) },
+          : { at: cursor, icons: icons.map(relationIcon) },
       grid: showGrid ? { spacing: gridSpacing, size: options.size?.() ?? measure(root) } : undefined,
     });
   }
@@ -309,23 +261,16 @@ export function createEditor(options: EditorOptions): Editor {
    * point onto the axis so the geometry is right at the moment of the click,
    * rather than leaving a kink for the solver to pull out.
    */
-  function inferFrom(anchor: Id | undefined, at: Point2, hit: Hit | undefined) {
+  function inferFrom(anchor: Id | undefined, at: Point2, hit: Hit | undefined): InferenceGuess {
     const placed = place(at);
     const from = pointAt(anchor);
-    if (!inferring || from === undefined) return { point: placed, relations: [] as InferredRelation[] };
+    if (!inferring || from === undefined) return { point: placed, relations: [] };
 
-    const result = inferSegment(from, placed, {
+    const guess = inferSegment(from, placed, {
       scale: viewport.scale,
       joined: hit?.kind === 'point',
     });
-    return { point: result.point, relations: [...result.relations] };
-  }
-
-  /** Constraints for the relations a click just committed. */
-  function inferredEdits(from: Id, to: Id, relations: readonly InferredRelation[]) {
-    return relations.map((kind) =>
-      addConstraint({ id: nextId('c'), kind, p1: from, p2: to } as Constraint),
-    );
+    return { point: guess.point, relations: [...guess.relations] };
   }
 
   interface ApplyOptions {
@@ -410,13 +355,10 @@ export function createEditor(options: EditorOptions): Editor {
     }
     if (mouse.button !== 0) return;
 
-    if (tool === 'line') {
-      placeLinePoint(at);
-      return;
-    }
-
-    if (tool === 'arc') {
-      placeArcPoint(at);
+    const drawing = drawingTool();
+    if (drawing !== undefined) {
+      drawing.placePoint(at);
+      draw();
       return;
     }
 
@@ -478,14 +420,7 @@ export function createEditor(options: EditorOptions): Editor {
       return;
     }
 
-    if (tool === 'line') {
-      inferred = chainPoint === undefined ? [] : inferFrom(chainPoint, at, pick(at)).relations;
-      if (chainPoint !== undefined) draw();
-    }
-    if (tool === 'arc' && arcCentre !== undefined) {
-      if (arcStart !== undefined) trackArcSweep(at);
-      draw();
-    }
+    if (drawingTool()?.trackCursor(at) === true) draw();
   }
 
   function onPointerUp(event: Event): void {
@@ -497,64 +432,6 @@ export function createEditor(options: EditorOptions): Editor {
     // Ending the gesture is simply forgetting its token: the next dispatch
     // starts a fresh undo step.
     drag = undefined;
-  }
-
-  function placeLinePoint(at: Point2): void {
-    const doc = current(history);
-    const hit = pick(at);
-
-    // Clicking an existing point reuses it, so the two segments genuinely
-    // share a point rather than merely touching.
-    const pointId = hit?.kind === 'point' ? hit.id : nextId('p');
-    const guess = inferFrom(chainPoint, at, hit);
-    const where = guess.point;
-    const createPoint = hit?.kind === 'point' ? undefined : addPoint(pointId, where.x, where.y);
-
-    if (chainPoint === undefined) {
-      if (createPoint !== undefined) apply(createPoint, 'Start line');
-      chainPoint = pointId;
-      chainStart = pointId;
-      chainPath = undefined;
-      draw();
-      return;
-    }
-
-    if (pointId === chainPoint) return; // a zero-length segment is not a line
-
-    const layer = doc.layerOrder[0];
-    if (layer === undefined) return;
-
-    const lineId = nextId('line');
-    const from = chainPoint;
-    const continuing = chainPath;
-    const pathId = continuing ?? nextId('path');
-    // Clicking back on the point the chain started from closes the loop, which
-    // is what makes the export a closed `<path d>` with a trailing Z.
-    const closes = pointId === chainStart;
-
-    apply(
-      compose(
-        ...(createPoint === undefined ? [] : [createPoint]),
-        addLine(lineId, from, pointId, layer),
-        continuing === undefined ? startPath(pathId, lineId) : extendPath(pathId, lineId),
-        ...(closes ? [closePath(pathId)] : []),
-        // The relations go in the same transaction as the geometry, so the
-        // segment and what it means are one undo step.
-        ...inferredEdits(from, pointId, guess.relations),
-      ),
-      closes ? 'Close shape' : 'Draw line',
-    );
-
-    inferred = [];
-
-    if (closes) {
-      endChain();
-      return;
-    }
-
-    chainPoint = pointId;
-    chainPath = pathId;
-    draw();
   }
 
   /** Which dimension, if any, the event landed on. */
@@ -569,107 +446,15 @@ export function createEditor(options: EditorOptions): Editor {
     return current.includes(id) ? current.filter((existing) => existing !== id) : [...current, id];
   }
 
-  /**
-   * Follows the cursor round, accumulating the angle travelled rather than
-   * taking the angle to the current position. Accumulating is what
-   * distinguishes a small arc from the large one going the other way.
-   */
-  function trackArcSweep(at: Point2): void {
-    const centre = pointAt(arcCentre);
-    if (centre === undefined) return;
-    const angle = angleOf(centre, at);
-    if (arcLastAngle !== undefined) {
-      // The shortest step from the previous angle, signed.
-      let delta = normalizeAngle(angle - arcLastAngle);
-      if (delta > Math.PI) delta -= Math.PI * 2;
-      arcSweep += delta;
-    }
-    arcLastAngle = angle;
-  }
-
   function pointAt(id: Id | undefined): Point2 | undefined {
     if (id === undefined) return undefined;
     return result.positions[id] ?? current(history).points[id];
   }
 
-  /** Centre, then start, then end. */
-  function placeArcPoint(at: Point2): void {
-    const doc = current(history);
-    const hit = pick(at);
-    const existing = hit?.kind === 'point' ? hit.id : undefined;
-
-    if (arcCentre === undefined) {
-      const id = existing ?? nextId('p');
-      const where = place(at);
-      if (existing === undefined) apply(addPoint(id, where.x, where.y), 'Arc centre');
-      arcCentre = id;
-      draw();
-      return;
-    }
-
-    if (arcStart === undefined) {
-      if (existing === arcCentre) return; // a zero radius is not an arc
-      const id = existing ?? nextId('p');
-      const where = place(at);
-      if (existing === undefined) apply(addPoint(id, where.x, where.y), 'Arc start');
-      arcStart = id;
-      arcSweep = 0;
-      arcLastAngle = pointAt(arcCentre) === undefined ? undefined : angleOf(pointAt(arcCentre)!, at);
-      draw();
-      return;
-    }
-
-    const centre = pointAt(arcCentre);
-    const start = pointAt(arcStart);
-    const layer = doc.layerOrder[0];
-    if (centre === undefined || start === undefined || layer === undefined) return;
-    if (Math.abs(arcSweep) < 1e-6) return; // no sweep yet, so no arc
-
-    // A click on the centre names no direction: the end angle is measured
-    // from the centre, and at the centre there is no angle. It used to build
-    // an arc anyway, with `atan2(0, 0)` landing the end back on the start —
-    // an arc of no extent, which renders as nothing at all and leaves an
-    // invisible entity in the document. Ignore the click; the tool stays
-    // armed for a real one.
-    if (existing === arcCentre || (at.x === centre.x && at.y === centre.y)) return;
-
-    trackArcSweep(at);
-    const radius = Math.hypot(start.x - centre.x, start.y - centre.y);
-    // The end point sits on the arc's own circle, so the sketch starts
-    // consistent rather than being pulled straight by the implicit constraint.
-    const endAt = arcPoint(centre, radius, angleOf(centre, at));
-
-    // Reuse a clicked point only if it can be an end: landing back on the
-    // start is a zero sweep, which is not an arc.
-    const reusable = existing !== undefined && existing !== arcStart;
-    const endId = reusable ? existing : nextId('p');
-    const arcId = nextId('arc');
-
-    apply(
-      compose(
-        ...(reusable ? [] : [addPoint(endId, endAt.x, endAt.y)]),
-        addArc(arcId, arcCentre, arcStart, endId, layer, arcSweep > 0),
-      ),
-      'Draw arc',
-    );
-
-    endArc();
-  }
-
-  function endArc(): void {
-    arcCentre = undefined;
-    arcStart = undefined;
-    arcSweep = 0;
-    arcLastAngle = undefined;
-  }
-
-  function endChain(): void {
-    endArc();
-    if (chainPoint === undefined) return;
-    chainPoint = undefined;
-    chainPath = undefined;
-    chainStart = undefined;
-    draw();
+  /** Abandons whatever a drawing tool had in progress. */
+  function endTools(): void {
+    const ended = [lineTool.end(), arcTool.end()].some(Boolean);
+    if (ended) draw();
   }
 
   function onWheel(event: Event): void {
@@ -681,91 +466,26 @@ export function createEditor(options: EditorOptions): Editor {
     draw();
   }
 
-  /**
-   * Is the event coming from somewhere the user is typing?
-   *
-   * The key handler is on the document so shortcuts work wherever the focus
-   * is, which means it also sees every keystroke typed into the panel's
-   * dimension fields — where `Backspace` deleting the selected geometry and
-   * `d` adding a dimension are the last things anyone wants.
-   */
-  function isTyping(target: EventTarget | null): boolean {
-    if (target === null || !(typeof (target as Element).tagName === 'string')) return false;
-    const element = target as HTMLElement;
-    if (element.isContentEditable) return true;
-    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName);
-  }
-
   function onKeyDown(event: Event): void {
-    const key = event as KeyboardEvent;
-    const accel = key.metaKey || key.ctrlKey;
-
-    // Every key, accelerators included: Ctrl+Z in a text field is that
-    // field's own undo, and undoing the sketch behind it as well would be
-    // two undos for one keystroke.
-    if (isTyping(event.target)) return;
-
-    if (accel && key.key.toLowerCase() === 'z') {
-      event.preventDefault();
-      if (key.shiftKey) editor.redo();
-      else editor.undo();
-      return;
-    }
-    if (accel && key.key.toLowerCase() === 'y') {
-      event.preventDefault();
-      editor.redo();
-      return;
-    }
-    if (accel) return;
-
-    if (key.shiftKey) {
-      const relation = RELATION_KEYS[key.key.toLowerCase()];
-      if (relation !== undefined) {
-        event.preventDefault();
-        editor.applyRelation(relation);
-        return;
-      }
-    }
-
-    switch (key.key) {
-      case 'd':
-      case 'D':
-        editor.addDimension();
-        break;
-      case 'g':
-      case 'G':
-        editor.setGridVisible(!showGrid);
-        break;
-      case 'Backspace':
-      case 'Delete':
-        event.preventDefault();
-        editor.deleteSelection();
-        break;
-      case 'Escape':
-        endChain();
+    handleKey(event as KeyboardEvent, {
+      undo: () => editor.undo(),
+      redo: () => editor.redo(),
+      applyRelation: (kind) => editor.applyRelation(kind),
+      addDimension: () => editor.addDimension(),
+      toggleGrid: () => editor.setGridVisible(!showGrid),
+      deleteSelection: () => editor.deleteSelection(),
+      cancel() {
+        endTools();
         selection = [];
         draw();
-        break;
-      case 'v':
-      case 'V':
-        editor.setTool('select');
-        break;
-      case 'l':
-      case 'L':
-        editor.setTool('line');
-        break;
-      case 'a':
-      case 'A':
-        editor.setTool('arc');
-        break;
-      default:
-        break;
-    }
+      },
+      setTool: (next) => editor.setTool(next),
+    });
   }
 
   function afterHistoryMove(): void {
     // Undo can remove the geometry a chain was building on, so drop it.
-    endChain();
+    endTools();
     selection = [];
     result = solve(current(history));
     draw();
@@ -815,10 +535,13 @@ export function createEditor(options: EditorOptions): Editor {
     setInferring(next) {
       if (next === inferring) return;
       inferring = next;
-      inferred = [];
+      // Recompute rather than clear: turning inference off drops the hints,
+      // and turning it on with the cursor parked over the canvas shows them
+      // without waiting for a move.
+      if (cursor !== undefined) drawingTool()?.trackCursor(cursor);
       draw();
     },
-    getInferred: () => [...inferred],
+    getInferred: () => [...hints()],
     areDimensionsVisible: () => showDimensions,
     setDimensionsVisible(visible) {
       if (visible === showDimensions) return;
@@ -828,7 +551,7 @@ export function createEditor(options: EditorOptions): Editor {
     getGridSpacing: () => gridSpacing,
     setTool(next) {
       if (next === tool) return;
-      endChain();
+      endTools();
       tool = next;
       draw();
     },
@@ -867,7 +590,7 @@ export function createEditor(options: EditorOptions): Editor {
       // colliding loudly.
       nextId = generatorPast(documentIds(doc));
       history = createHistory(doc);
-      endChain();
+      endTools();
       selection = [];
       result = solve(doc);
       draw();
