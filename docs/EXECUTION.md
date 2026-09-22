@@ -599,6 +599,18 @@ Settled while building it:
   on the grid; inference then aligns it to the axis (which keeps it on the
   grid, since the anchor is on the grid too) and records the reason.
 
+Driving the app afterwards found a crash that the whole test suite had missed:
+deleting geometry in a sketch that also held an arc threw
+`solver: no variable for point`. `referencedPoints` listed an entity's points
+by hand, and since `center` exists on a circle *and* an arc, the else-branch
+that assumed circle compiled cleanly while dropping the arc's endpoints — so
+pruning orphans took them out from under the arc. The renderer's conflict
+check had the same bug, quieter: an arc would not turn red when a conflict
+touched its endpoints. Both now go through `entityPointIds`, the helper that
+exists for exactly this, and the class of bug is worth remembering: the
+discriminated union catches a *missing* case, not a case that happens to
+typecheck.
+
 A mutation revealed that a guard in the editor's `place()` was unobservable:
 a click that hits a point reuses its id and never creates a point, so the
 position `place` returned was discarded. The dead branch is gone and the real

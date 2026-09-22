@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { rectangleFixture } from '../../../tests/fixtures/rectangle';
 import {
+  addArc,
   addConstraint,
+  addEntity,
   addLine,
   addPoint,
   closePath,
@@ -12,6 +14,7 @@ import {
   referencedPoints,
   removeConstraint,
   removeEntity,
+  removePoint,
   startPath,
 } from './edits';
 import { createEmptyDocument } from './types';
@@ -215,5 +218,44 @@ describe('orphan points', () => {
   it('returns the same document when nothing is orphaned', () => {
     const { doc } = rectangleFixture();
     expect(pruneOrphanPoints()(doc)).toBe(doc);
+  });
+});
+
+describe('arcs and point references', () => {
+  const arcDoc = compose(
+    addPoint('c', 0, 0),
+    addPoint('s', 100, 0),
+    addPoint('e', 0, 100),
+    addArc('arc1', 'c', 's', 'e', 'layer1'),
+  )(createEmptyDocument());
+
+  it('counts all three of an arc\'s points as referenced', () => {
+    // `center` exists on a circle and an arc alike, so a hand-written check
+    // that assumed circle silently dropped the endpoints.
+    expect([...referencedPoints(arcDoc)].sort()).toEqual(['c', 'e', 's']);
+  });
+
+  it('does not prune an arc\'s endpoints out from under it', () => {
+    const pruned = pruneOrphanPoints()(arcDoc);
+
+    expect(Object.keys(pruned.points).sort()).toEqual(['c', 'e', 's']);
+    expect(validate(pruned)).toEqual([]);
+  });
+
+  it('removes an arc whose point is deleted, rather than leaving it dangling', () => {
+    const after = compose(removePoint('s'), pruneOrphanPoints())(arcDoc);
+
+    expect(after.entities['arc1']).toBeUndefined();
+    expect(validate(after)).toEqual([]);
+  });
+
+  it('keeps a circle\'s centre referenced too', () => {
+    const circleDoc = compose(
+      addPoint('c', 0, 0),
+      addEntity({ id: 'circle1', kind: 'circle', center: 'c', radius: 20, layer: 'layer1', construction: false }),
+    )(createEmptyDocument());
+
+    expect([...referencedPoints(circleDoc)]).toEqual(['c']);
+    expect(Object.keys(pruneOrphanPoints()(circleDoc).points)).toEqual(['c']);
   });
 });

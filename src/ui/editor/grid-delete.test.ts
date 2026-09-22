@@ -254,3 +254,63 @@ describe('deleting', () => {
     expect(Object.keys(editor.getDocument().entities)).toHaveLength(2);
   });
 });
+
+describe('deleting with an arc in the sketch', () => {
+  /** A rectangle and a separate arc, as a real sketch would have. */
+  function withArc(): void {
+    start();
+    editor.setTool('line');
+    click(0, 0);
+    click(200, 0);
+    click(200, 100);
+    click(0, 0);
+
+    editor.setTool('arc');
+    click(400, 200);
+    click(500, 200);
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 480, clientY: 270, bubbles: true }));
+    click(400, 300);
+    editor.setTool('select');
+  }
+
+  it('deletes a line without disturbing the arc', () => {
+    // Regression: pruning orphans used to take the arc's endpoints with it,
+    // leaving the arc pointing at points that no longer existed, and the
+    // solver threw on the next solve.
+    withArc();
+    const entities = Object.values(editor.getDocument().entities);
+    const line = entities.find((entity) => entity.kind === 'line')!;
+
+    editor.setSelection([line.id]);
+    expect(() => editor.deleteSelection()).not.toThrow();
+
+    const after = editor.getDocument();
+    expect(Object.values(after.entities).some((entity) => entity.kind === 'arc')).toBe(true);
+    expect(validate(after)).toEqual([]);
+  });
+
+  it('deletes a corner of the rectangle with the arc present', () => {
+    withArc();
+    const corner = Object.keys(editor.getDocument().points)[0]!;
+
+    editor.setSelection([corner]);
+    expect(() => editor.deleteSelection()).not.toThrow();
+    expect(validate(editor.getDocument())).toEqual([]);
+    expect(editor.getResult().residual).toBeLessThan(1e-6);
+  });
+
+  it('deletes the arc itself and prunes only its own points', () => {
+    withArc();
+    const arc = Object.values(editor.getDocument().entities).find((e) => e.kind === 'arc')!;
+    const before = Object.keys(editor.getDocument().points).length;
+
+    editor.setSelection([arc.id]);
+    editor.deleteSelection();
+
+    const after = editor.getDocument();
+    expect(Object.values(after.entities).some((entity) => entity.kind === 'arc')).toBe(false);
+    // The arc's three points go; the rectangle's stay.
+    expect(Object.keys(after.points)).toHaveLength(before - 3);
+    expect(validate(after)).toEqual([]);
+  });
+});

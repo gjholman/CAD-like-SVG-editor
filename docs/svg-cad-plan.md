@@ -393,3 +393,4 @@ Mitigating B's sync risk:
 
 - 2026-09-22: Chrome rebuilt on the mockup (icon tool rail, panels, view HUD, status bar); added an adaptive drawing grid with snapping, and delete.
 - 2026-09-22: Step 12 (inference while drawing) built: horizontal and vertical inferred as you draw, with the point moved onto the axis and a hint shown before the click commits. Tangent waits for the tangent constraint in Step 10.
+- 2026-09-22: Fixed two bugs of one shape found by driving the app: `referencedPoints` and the renderer's conflict check each listed an entity's points by hand and, because `center` exists on both a circle and an arc, silently ignored an arc's endpoints. Both now go through `entityPointIds`.

@@ -211,12 +211,11 @@ function constraintNames(constraint: Constraint, pointId: Id): boolean {
 export function referencedPoints(doc: SketchDocument): Set<Id> {
   const used = new Set<Id>();
   for (const entity of Object.values(doc.entities)) {
-    if (entity.kind === 'line') {
-      used.add(entity.p1);
-      used.add(entity.p2);
-    } else {
-      used.add(entity.center);
-    }
+    // Every kind, via the one helper that knows them all. Listing the fields
+    // by hand here is how an arc's endpoints got dropped: `center` exists on
+    // both a circle and an arc, so an else-branch that assumed circle
+    // compiled cleanly and pruned the endpoints out from under the arc.
+    for (const pointId of entityPointIds(entity)) used.add(pointId);
   }
   for (const constraint of Object.values(doc.constraints)) {
     if (constraint.kind === 'fix') used.add(constraint.point);

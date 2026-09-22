@@ -22,7 +22,7 @@
  */
 import type { EntityStatus, SolveResult } from '../../core/solver';
 import { arcShape, type ArcShape } from '../../core/geometry';
-import type { Entity, Id, SketchDocument } from '../../core/model';
+import { entityPointIds, type Entity, type Id, type SketchDocument } from '../../core/model';
 import { arrowPath, dimensionGeometry, type DimensionGeometry } from './dimensions';
 import { gridLines, type GridOptions } from './grid';
 import { viewTransform, type Point2, type Viewport } from './viewport';
@@ -228,7 +228,7 @@ function touchesConflict(entityId: Id, conflicted: ReadonlySet<Id>, doc: SketchD
   const entity = doc.entities[entityId];
   if (entity === undefined) return false;
 
-  const points = new Set(entity.kind === 'line' ? [entity.p1, entity.p2] : [entity.center]);
+  const points = new Set(entityPointIds(entity));
   for (const constraintId of conflicted) {
     const constraint = doc.constraints[constraintId];
     if (constraint === undefined) continue;
